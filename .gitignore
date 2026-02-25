@@ -1,0 +1,23 @@
+# Mobile (Android/Gradle)
+mobile/app/build/
+mobile/build/
+mobile/.gradle/
+mobile/local.properties
+mobile/app/google-services.json
+*.class
+*.apk
+*.aab
+*.dex
+
+# Web (Node/React)
+web/node_modules/
+web/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
