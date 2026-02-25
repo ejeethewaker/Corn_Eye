@@ -1,0 +1,263 @@
+/* ── Back Link ── */
+.up-back-link {
+  background: none;
+  border: none;
+  color: #2196f3;
+  font-size: 20px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 12px;
+  display: inline-block;
+}
+
+.up-back-link:hover {
+  text-decoration: underline;
+}
+
+.up-title {
+  font-size: 48px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0 0 36px;
+}
+
+/* ── Profile Card ── */
+.up-profile-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 16px;
+  padding: 36px 40px;
+  margin-bottom: 28px;
+}
+
+.up-avatar-section {
+  flex-shrink: 0;
+}
+
+.up-avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 60px;
+}
+
+.up-info-section {
+  flex: 1;
+}
+
+.up-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.up-name {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.up-status-badge {
+  padding: 8px 24px;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.up-badge-active {
+  background-color: #4caf50;
+}
+
+.up-badge-inactive {
+  background-color: #e53935;
+}
+
+/* ── Details ── */
+.up-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.up-detail-item {
+  font-size: 18px;
+  color: #555;
+}
+
+/* ── Account Control ── */
+.up-account-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 16px;
+  padding: 28px 40px;
+  margin-bottom: 36px;
+}
+
+.up-control-left {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.up-control-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.up-control-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.up-control-label {
+  font-size: 17px;
+  color: #555;
+}
+
+/* ── Toggle Switch ── */
+.up-toggle {
+  width: 52px;
+  height: 28px;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.3s;
+  padding: 0;
+}
+
+.up-toggle-on {
+  background-color: #4caf50;
+}
+
+.up-toggle-off {
+  background-color: #ccc;
+}
+
+.up-toggle-knob {
+  position: absolute;
+  top: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.3s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.up-toggle-on .up-toggle-knob {
+  left: 27px;
+}
+
+.up-toggle-off .up-toggle-knob {
+  left: 3px;
+}
+
+.up-control-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.up-value-active {
+  color: #4caf50;
+}
+
+.up-value-inactive {
+  color: #e53935;
+}
+
+.up-deactivate-btn {
+  padding: 14px 36px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  background-color: #e53935;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.up-deactivate-btn:hover {
+  background-color: #c62828;
+}
+
+/* ── Statistics ── */
+.up-stats-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0 0 20px;
+}
+
+.up-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.up-stat-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px;
+  text-align: center;
+  border: 1px solid #e0e0e0;
+}
+
+.up-stat-blue {
+  background: #e3f2fd;
+  border: none;
+}
+
+.up-stat-red {
+  background: #fff;
+}
+
+.up-stat-number {
+  font-size: 56px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.up-stat-number.blue {
+  color: #2196f3;
+}
+
+.up-stat-number.red {
+  color: #e53935;
+}
+
+.up-stat-label {
+  font-size: 18px;
+  color: #555;
+  margin: 0 0 8px;
+}
+
+.up-stat-change {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.up-stat-change.green {
+  color: #4caf50;
+}
+
+.up-stat-change.red {
+  color: #e53935;
+}
