@@ -1,0 +1,99 @@
+/* ── Notifications Title ── */
+.notif-title {
+  font-size: 48px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 0 0 24px;
+}
+
+/* ── Tabs ── */
+.notif-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.notif-tab {
+  padding: 12px 28px;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 24px;
+  border: 2px solid #ccc;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.notif-tab:hover {
+  border-color: #f5b731;
+}
+
+.notif-tab-active {
+  background-color: #f5b731;
+  border-color: #f5b731;
+  color: #fff;
+}
+
+/* ── Notification List ── */
+.notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notif-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 24px 28px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 14px;
+  transition: box-shadow 0.2s;
+}
+
+.notif-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.notif-unread {
+  border-left: 4px solid #f5b731;
+}
+
+/* ── Avatar ── */
+.notif-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #e8e8e8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── Content ── */
+.notif-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.notif-card-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.notif-card-desc {
+  font-size: 17px;
+  color: #555;
+}
+
+.notif-card-time {
+  font-size: 15px;
+  color: #999;
+  margin-top: 2px;
+}
