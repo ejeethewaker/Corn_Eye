@@ -1,0 +1,275 @@
+/* ── Toast Notification ── */
+.toast-notification {
+  position: fixed;
+  top: 30px;
+  right: 30px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  animation: toastSlideIn 0.35s ease-out;
+  min-width: 280px;
+}
+
+.toast-success {
+  background-color: #e8f5e9;
+  border-left: 4px solid #4caf50;
+  color: #2e7d32;
+}
+
+.toast-error {
+  background-color: #fdecea;
+  border-left: 4px solid #d32f2f;
+  color: #c62828;
+}
+
+.toast-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.toast-success .toast-icon {
+  background-color: #4caf50;
+  color: #fff;
+}
+
+.toast-error .toast-icon {
+  background-color: #d32f2f;
+  color: #fff;
+}
+
+.toast-message {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.login-container {
+  display: flex;
+  min-height: 100vh;
+  background-color: #f0f0f0;
+}
+
+/* ── Left Sidebar ── */
+.login-sidebar {
+  width: 320px;
+  min-width: 320px;
+  background-color: #f5b731;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 50px;
+}
+
+.sidebar-content {
+  text-align: center;
+}
+
+.sidebar-logo {
+  width: 350px;
+  height: auto;
+  margin-bottom: 8px;
+}
+
+.sidebar-title {
+  font-size: 25px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin: 4px 0 8px;
+}
+
+.sidebar-subtitle {
+  font-size: 20px;
+  color: #1a1a1a;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Right Main Area ── */
+.login-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.login-form-wrapper {
+  width: 100%;
+  max-width: 700px;
+}
+
+.login-heading {
+  font-size: 48px;
+  font-weight: 700;
+  color: #1b3a5c;
+  margin: 0 0 10px;
+}
+
+.login-subheading {
+  font-size: 18px;
+  color: #666;
+  margin: 0 0 44px;
+}
+
+/* ── Form ── */
+/* ── Error Message ── */
+.login-error {
+  background-color: #fdecea;
+  color: #d32f2f;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 20px;
+  border: 1px solid #f5c6cb;
+}
+
+/* ── Form ── */
+.form-group {
+  margin-bottom: 32px;
+}
+
+.form-label {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 18px 22px;
+  font-size: 17px;
+  border: 2px solid #f5b731;
+  border-radius: 10px;
+  background-color: #f5b731;
+  color: #333;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.form-input::placeholder {
+  color: #7a6520;
+  opacity: 0.7;
+}
+
+.form-input:focus {
+  border-color: #d4981e;
+  background-color: #f5b731;
+}
+
+/* ── Checkbox ── */
+.form-checkbox-group {
+  margin-bottom: 28px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  color: #333;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-left: 32px;
+}
+
+.checkbox-input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+  height: 0;
+  width: 0;
+}
+
+.checkbox-custom {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 20px;
+  width: 20px;
+  background-color: #fff;
+  border: 2px solid #3b82f6;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.checkbox-input:checked ~ .checkbox-custom {
+  background-color: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.checkbox-custom::after {
+  content: '';
+  position: absolute;
+  display: none;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.checkbox-input:checked ~ .checkbox-custom::after {
+  display: block;
+}
+
+/* ── Button ── */
+.login-button {
+  width: 100%;
+  padding: 19px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #B76E2E;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.login-button:hover {
+  background-color: #e0a41e;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .login-container {
+    flex-direction: column;
+  }
+
+  .login-sidebar {
+    width: 100%;
+    min-width: unset;
+    padding: 30px 20px;
+  }
+
+  .login-main {
+    padding: 30px 20px;
+  }
+}
