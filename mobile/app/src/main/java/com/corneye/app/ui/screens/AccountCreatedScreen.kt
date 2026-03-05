@@ -1,3 +1,5 @@
+// Account Created Screen
+// Welcome screen displayed after a new farmer account is successfully registered.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.Image
@@ -30,6 +32,7 @@ fun AccountCreatedScreen(navController: NavController) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(GoldenBackground)
                 .background(StatusBarGold)
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .align(Alignment.TopStart)
