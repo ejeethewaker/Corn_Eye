@@ -1,3 +1,5 @@
+// App Router
+// Sets up top-level routes and authentication guards for the admin dashboard.
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 import Login from './Login';
@@ -14,6 +16,10 @@ function isAuthenticated() {
   );
 }
 
+function ProtectedRoute({ children }) {
+  return isAuthenticated() ? children : <Navigate to="/" />;
+}
+
 function App() {
   return (
     <Router>
@@ -21,23 +27,23 @@ function App() {
         <Route path="/" element={<Login />} />
         <Route
           path="/dashboard"
-          element={isAuthenticated() ? <Dashboard /> : <Navigate to="/" />}
+          element={<ProtectedRoute><Dashboard /></ProtectedRoute>}
         />
         <Route
           path="/users"
-          element={isAuthenticated() ? <Users /> : <Navigate to="/" />}
+          element={<ProtectedRoute><Users /></ProtectedRoute>}
         />
         <Route
           path="/notifications"
-          element={isAuthenticated() ? <Notifications /> : <Navigate to="/" />}
+          element={<ProtectedRoute><Notifications /></ProtectedRoute>}
         />
         <Route
           path="/profile"
-          element={isAuthenticated() ? <Profile /> : <Navigate to="/" />}
+          element={<ProtectedRoute><Profile /></ProtectedRoute>}
         />
         <Route
           path="/user/:id"
-          element={isAuthenticated() ? <UserProfile /> : <Navigate to="/" />}
+          element={<ProtectedRoute><UserProfile /></ProtectedRoute>}
         />
       </Routes>
     </Router>
