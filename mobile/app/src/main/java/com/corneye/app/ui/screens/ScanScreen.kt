@@ -1,3 +1,5 @@
+// Scan Screen
+// Camera and gallery picker for capturing a corn leaf photo to analyse.
 package com.corneye.app.ui.screens
 
 import android.Manifest
@@ -71,7 +73,7 @@ fun ScanScreen(navController: NavController) {
         uri?.let {
             capturedImageUri = it
             isAnalyzing = true
-            performAnalysis(context, navController) {
+            performAnalysis(context, navController, imageFile = null, imageUri = it) {
                 isAnalyzing = false
             }
         }
@@ -112,7 +114,7 @@ fun ScanScreen(navController: NavController) {
                             0 -> navController.navigate(Screen.Home.route) {
                                 popUpTo(Screen.Home.route) { inclusive = true }
                             }
-                            1 -> navController.navigate(Screen.History.route)
+                            1 -> navController.navigate(Screen.Profile.route)
                             2 -> { /* Already on Scan */ }
                             3 -> navController.navigate(Screen.Notifications.route)
                             4 -> navController.navigate(Screen.Settings.route)
@@ -132,6 +134,7 @@ fun ScanScreen(navController: NavController) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(GoldenBackground)
                         .background(StatusBarGold)
                         .windowInsetsPadding(WindowInsets.statusBars)
                 )
@@ -650,7 +653,7 @@ private fun captureAndAnalyze(
         ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                performAnalysis(context, navController) {
+                performAnalysis(context, navController, imageFile = photoFile, imageUri = null) {
                     onAnalyzing(false)
                 }
             }
@@ -666,21 +669,31 @@ private fun captureAndAnalyze(
 private fun performAnalysis(
     context: Context,
     navController: NavController,
+    imageFile: java.io.File?,
+    imageUri: android.net.Uri?,
     onComplete: () -> Unit
 ) {
-    val diseases = listOf(
-        "Northern Leaf Blight" to 0.92f,
-        "Common Rust" to 0.87f,
-        "Gray Leaf Spot" to 0.85f,
-        "Healthy" to 0.95f
-    )
+    Thread {
+        val classifier = CornDiseaseClassifier(context)
+        val modelLoaded = classifier.initialize()
 
-    val result = diseases.random()
+        val tfliteResult: CornDiseaseClassifier.Result? = when {
+            !modelLoaded      -> null
+            imageFile != null -> classifier.classifyFromFile(imageFile)
+            imageUri  != null -> classifier.classifyFromUri(imageUri)
+            else              -> null
+        }
+        classifier.close()
 
-    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-        onComplete()
-        navController.navigate(
-            Screen.Result.createRoute(result.first, result.second)
-        )
-    }, 2000)
+        val label      = tfliteResult?.label      ?: "Analysis Unavailable"
+        val confidence = tfliteResult?.confidence ?: 0f
+        val uriString  = imageFile?.toURI()?.toString() ?: imageUri?.toString() ?: ""
+
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            onComplete()
+            navController.navigate(
+                Screen.Analyzing.createRoute(label, confidence, uriString)
+            )
+        }
+    }.start()
 }
