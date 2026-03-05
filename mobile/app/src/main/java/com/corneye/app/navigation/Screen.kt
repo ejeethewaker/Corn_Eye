@@ -1,3 +1,5 @@
+// Screen Routes
+// Sealed class defining all navigation route constants used in the nav graph.
 package com.corneye.app.navigation
 
 sealed class Screen(val route: String) {
@@ -7,9 +9,20 @@ sealed class Screen(val route: String) {
     object AccountCreated : Screen("account_created")
     object Home : Screen("home")
     object Scan : Screen("scan")
-    object Result : Screen("result/{diseaseName}/{confidence}") {
-        fun createRoute(diseaseName: String, confidence: Float): String =
-            "result/$diseaseName/$confidence"
+    object Analyzing : Screen("analyzing/{diseaseName}/{confidence}/{imageUri}") {
+        fun createRoute(diseaseName: String, confidence: Float, imageUri: String): String =
+            "analyzing/${java.net.URLEncoder.encode(diseaseName, "UTF-8")}/$confidence/${java.net.URLEncoder.encode(imageUri, "UTF-8")}"
+    }
+    object Result : Screen("result/{diseaseName}/{confidence}/{imageUri}") {
+        fun createRoute(diseaseName: String, confidence: Float, imageUri: String): String =
+            "result/${java.net.URLEncoder.encode(diseaseName, "UTF-8")}/$confidence/${java.net.URLEncoder.encode(imageUri, "UTF-8")}"
+    }
+    object InvalidScan : Screen("invalid_scan/{reason}") {
+        fun createRoute(reason: String = "not_corn") = "invalid_scan/$reason"
+    }
+    object FullReport : Screen("full_report/{scanId}/{diseaseName}/{confidence}/{date}/{time}") {
+        fun createRoute(scanId: String, diseaseName: String, confidence: Float, date: String, time: String): String =
+            "full_report/${java.net.URLEncoder.encode(scanId, "UTF-8")}/${java.net.URLEncoder.encode(diseaseName, "UTF-8")}/$confidence/${java.net.URLEncoder.encode(date, "UTF-8")}/${java.net.URLEncoder.encode(time, "UTF-8")}"
     }
     object History : Screen("history")
     object Profile : Screen("profile")
@@ -34,4 +47,15 @@ sealed class Screen(val route: String) {
         fun createRoute(planName: String, planPrice: Int, paymentMethod: String): String =
             "subscription_success/${java.net.URLEncoder.encode(planName, "UTF-8")}/$planPrice/${java.net.URLEncoder.encode(paymentMethod, "UTF-8")}"
     }
+    object ForgotPassword : Screen("forgot_password")
+    object Otp : Screen("otp/{email}") {
+        fun createRoute(email: String): String =
+            "otp/${java.net.URLEncoder.encode(email, "UTF-8")}"
+    }
+    object SetNewPassword : Screen("set_new_password/{email}") {
+        fun createRoute(email: String): String =
+            "set_new_password/${java.net.URLEncoder.encode(email, "UTF-8")}"
+    }
+    object PasswordReset : Screen("password_reset")
+    object PasswordSuccess : Screen("password_success")
 }
