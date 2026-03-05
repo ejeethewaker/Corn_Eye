@@ -1,3 +1,5 @@
+// FAQ Screen
+// Frequently asked questions about the app, scanning process, and diseases.
 package com.corneye.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
@@ -92,6 +94,7 @@ fun FAQScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
