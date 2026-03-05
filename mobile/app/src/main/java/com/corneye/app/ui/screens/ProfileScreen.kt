@@ -1,3 +1,5 @@
+// Profile Screen
+// Farmer account info, profile photo, and subscription status overview.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -17,15 +19,99 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import android.util.Base64
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
 
 @Composable
 fun ProfileScreen(navController: NavController) {
+    val context = LocalContext.current
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
+
+    var fullName by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf("") }
+    var farmSize by remember { mutableStateOf("") }
+    var photoUrl by remember { mutableStateOf("") }
+    var totalScans by remember { mutableIntStateOf(0) }
+    var weeklyScans by remember { mutableIntStateOf(0) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // Load farmer profile from Firebase
+    LaunchedEffect(userId) {
+        if (userId.isNotEmpty()) {
+            FirebaseHelper.farmersRef().child(userId).get()
+                .addOnSuccessListener { snapshot ->
+                    if (snapshot.exists()) {
+                        fullName = snapshot.child("fullname").getValue(String::class.java) ?: ""
+                        email = snapshot.child("email_address").getValue(String::class.java) ?: ""
+                        phone = snapshot.child("phone_num").getValue(String::class.java) ?: ""
+                        location = snapshot.child("farm_location").getValue(String::class.java) ?: ""
+                        farmSize = snapshot.child("farm_area").getValue(String::class.java) ?: ""
+                    }
+                    isLoading = false
+                }
+                .addOnFailureListener { isLoading = false }
+
+            // Load scan counts from analysis_results
+            FirebaseHelper.analysisResultsRef().get()
+                .addOnSuccessListener { snapshot ->
+                    var total = 0
+                    var weekly = 0
+                    val oneWeekAgo = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L
+                    snapshot.children.forEach { child ->
+                        val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                        if (scanUserId == userId) {
+                            total++
+                            val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
+                            if (timeScanned >= oneWeekAgo) weekly++
+                        }
+                    }
+                    totalScans = total
+                    weeklyScans = weekly
+                }
+        }
+    }
+
+    // Real-time listener so photo updates immediately after upload
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                photoUrl = snapshot.getValue(String::class.java) ?: ""
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        val ref = FirebaseHelper.farmersRef().child(userId).child("profile_photo_url")
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
+    }
+
+    val initials = fullName.split(" ")
+        .mapNotNull { it.firstOrNull()?.uppercase() }
+        .joinToString("")
+        .take(2)
+
+    val photoBytes = remember(photoUrl) {
+        if (photoUrl.isNotEmpty()) {
+            try { Base64.decode(photoUrl, Base64.DEFAULT) }
+            catch (e: Exception) { null }
+        } else null
+    }
+
     var selectedTab by remember { mutableIntStateOf(-1) }
 
     Scaffold(
@@ -39,7 +125,7 @@ fun ProfileScreen(navController: NavController) {
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> { /* Already here */ }
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -59,6 +145,7 @@ fun ProfileScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -131,12 +218,21 @@ fun ProfileScreen(navController: NavController) {
                                     .border(3.dp, Color.Black, CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "JD",
-                                    fontSize = 42.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
+                                if (photoBytes != null) {
+                                    AsyncImage(
+                                        model = photoBytes,
+                                        contentDescription = "Profile photo",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Text(
+                                        text = initials.ifEmpty { "?" },
+                                        fontSize = 42.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary
+                                    )
+                                }
                             }
                             // Edit icon on avatar
                             Box(
@@ -161,13 +257,13 @@ fun ProfileScreen(navController: NavController) {
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            text = "John Doe",
+                            text = fullName.ifEmpty { "Loading..." },
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         Text(
-                            text = "johndoe@gmail.com",
+                            text = email.ifEmpty { "" },
                             fontSize = 14.sp,
                             color = TextPrimary.copy(alpha = 0.7f)
                         )
@@ -193,7 +289,7 @@ fun ProfileScreen(navController: NavController) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "0",
+                                        text = "$totalScans",
                                         fontSize = 22.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary
@@ -218,7 +314,7 @@ fun ProfileScreen(navController: NavController) {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "0",
+                                        text = "$weeklyScans",
                                         fontSize = 22.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary
@@ -252,7 +348,7 @@ fun ProfileScreen(navController: NavController) {
                 AccountInfoCard(
                     icon = Icons.Default.Phone,
                     label = "Phone Number",
-                    value = "09272074346"
+                    value = phone.ifEmpty { "Not set" }
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -261,7 +357,7 @@ fun ProfileScreen(navController: NavController) {
                 AccountInfoCard(
                     icon = Icons.Default.LocationOn,
                     label = "Location",
-                    value = "Cebu City, Philippines"
+                    value = location.ifEmpty { "Not set" }
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -270,7 +366,7 @@ fun ProfileScreen(navController: NavController) {
                 AccountInfoCard(
                     icon = Icons.Default.Agriculture,
                     label = "Farm Size",
-                    value = "2.5 Hectares"
+                    value = farmSize.ifEmpty { "Not set" }
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
