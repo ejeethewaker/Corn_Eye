@@ -1,6 +1,6 @@
+// App Colors
+// Custom color palette definitions used throughout the app's Material3 theme.
 package com.corneye.app.ui.theme
-
-import androidx.compose.ui.graphics.Color
 
 // Greens
 val GreenPrimary = Color(0xFF2E7D32)
@@ -11,10 +11,10 @@ val GreenSurface = Color(0xFFE8F5E9)
 // Brand Yellows / Golds
 val YellowAccent = Color(0xFFF8B936)
 val GoldenBackground = Color(0xFFF8B936)
-val GoldenInput = Color(0xFFF5C542)
-val BrownButton = Color(0xFF986741)
-val BrownButtonDark = Color(0xFF8B4513)
-val StatusBarGold = Color(0xFFC4941F)
+val GoldenInput = Color(0xFFF8B936)
+val BrownButton = Color(0xFF9F4409)
+val BrownButtonDark = Color(0xFF7A3307)
+val StatusBarGold = Color(red = 0f, green = 0f, blue = 0f, alpha = 0.5f)
 
 // Neutrals
 val White = Color(0xFFFFFFFF)
