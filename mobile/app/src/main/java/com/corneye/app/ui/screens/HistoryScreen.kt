@@ -1,3 +1,5 @@
+// History Screen
+// Displays the farmer's past scan results sorted from newest to oldest.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -16,13 +18,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class ScanHistoryItem(
     val id: String,
@@ -36,11 +44,49 @@ data class ScanHistoryItem(
 
 @Composable
 fun HistoryScreen(navController: NavController) {
-    val historyItems = remember {
-        listOf(
-            ScanHistoryItem("1", "Corn Leaf Sample", "Gray Leaf Spot Detected", 0.92f, "Feb 16, 2026", "2:15 PM", false),
-            ScanHistoryItem("2", "Corn Leaf Sample", "Common Rust Detected", 0.87f, "Feb 15, 2026", "11:30 AM", false),
-        )
+    val context = LocalContext.current
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
+    var historyItems by remember { mutableStateOf<List<ScanHistoryItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // Real-time listener for scan history
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+        val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+        val listener = object : com.google.firebase.database.ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                val items = mutableListOf<ScanHistoryItem>()
+                snapshot.children.forEach { child ->
+                    val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                    if (scanUserId == userId) {
+                        val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
+                        val date = if (timeScanned > 0) Date(timeScanned) else Date()
+                        val label = child.child("analysis_label").getValue(String::class.java) ?: "Unknown"
+                        items.add(
+                            ScanHistoryItem(
+                                id = child.key ?: "",
+                                sampleName = "Corn Leaf Sample",
+                                diseaseName = label,
+                                confidence = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
+                                date = dateFormat.format(date),
+                                time = timeFormat.format(date),
+                                isHealthy = label.equals("Healthy", ignoreCase = true)
+                            )
+                        )
+                    }
+                }
+                historyItems = items.sortedByDescending { it.date }
+                isLoading = false
+            }
+            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                android.util.Log.e("HistoryScreen", "Firebase error: ${error.message}")
+                isLoading = false
+            }
+        }
+        val ref = FirebaseHelper.analysisResultsRef()
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     var selectedTab by remember { mutableIntStateOf(1) }
@@ -86,6 +132,7 @@ fun HistoryScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -164,7 +211,7 @@ fun HistoryScreen(navController: NavController) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(filteredItems) { item ->
-                        HistoryCard(item = item)
+                        HistoryCard(item = item, navController = navController)
                     }
                 }
             }
@@ -173,7 +220,7 @@ fun HistoryScreen(navController: NavController) {
 }
 
 @Composable
-private fun HistoryFilterChip(
+fun HistoryFilterChip(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit
@@ -196,7 +243,7 @@ private fun HistoryFilterChip(
 }
 
 @Composable
-fun HistoryCard(item: ScanHistoryItem) {
+fun HistoryCard(item: ScanHistoryItem, navController: NavController? = null) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
@@ -299,7 +346,17 @@ fun HistoryCard(item: ScanHistoryItem) {
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = StatusWarning,
-                modifier = Modifier.clickable { /* Navigate to report */ }
+                modifier = Modifier.clickable {
+                    navController?.navigate(
+                        Screen.FullReport.createRoute(
+                            scanId = item.id,
+                            diseaseName = item.diseaseName,
+                            confidence = item.confidence,
+                            date = item.date,
+                            time = item.time
+                        )
+                    )
+                }
             )
         }
     }
