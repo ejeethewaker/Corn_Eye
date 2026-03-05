@@ -1,3 +1,5 @@
+// Payment Screen
+// Handles subscription payment input and order processing.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -24,7 +26,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
@@ -41,8 +46,11 @@ fun PaymentScreen(
     planName: String,
     planPrice: Int
 ) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(4) }
-    var selectedPaymentIndex by remember { mutableIntStateOf(0) } // GCash selected by default
+    var selectedPaymentIndex by remember { mutableIntStateOf(0) }
+    var isProcessing by remember { mutableStateOf(false) }
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
 
     val paymentMethods = listOf(
         PaymentMethod(
@@ -76,7 +84,7 @@ fun PaymentScreen(
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -95,6 +103,7 @@ fun PaymentScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -249,13 +258,35 @@ fun PaymentScreen(
                 // Pay button
                 Button(
                     onClick = {
-                        navController.navigate(
-                            Screen.SubscriptionSuccess.createRoute(
-                                planName = planName,
-                                planPrice = planPrice,
-                                paymentMethod = paymentMethods[selectedPaymentIndex].name
+                        if (!isProcessing) {
+                            isProcessing = true
+                            val paymentMethodName = paymentMethods[selectedPaymentIndex].name
+
+                            // Store payment in Firebase
+                            if (userId.isNotEmpty()) {
+                                val paymentId = FirebaseHelper.paymentsRef().push().key ?: ""
+                                if (paymentId.isNotEmpty()) {
+                                    val paymentData = mapOf(
+                                        "payment_id" to paymentId,
+                                        "farmer_id" to userId,
+                                        "plan_id" to planName,
+                                        "payment_date" to System.currentTimeMillis(),
+                                        "payment_amount" to planPrice,
+                                        "payment_method" to paymentMethodName,
+                                        "transact_status" to "completed"
+                                    )
+                                    FirebaseHelper.paymentsRef().child(paymentId).setValue(paymentData)
+                                }
+                            }
+
+                            navController.navigate(
+                                Screen.SubscriptionSuccess.createRoute(
+                                    planName = planName,
+                                    planPrice = planPrice,
+                                    paymentMethod = paymentMethodName
+                                )
                             )
-                        )
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
