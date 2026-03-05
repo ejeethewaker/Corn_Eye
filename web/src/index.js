@@ -1,3 +1,5 @@
+// App Entry Point
+// Bootstraps the React app and mounts it into the DOM.
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
