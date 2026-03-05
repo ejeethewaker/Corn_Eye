@@ -1,6 +1,7 @@
+// App Theme
+// Applies the CornEye Material3 color scheme and system bar styling.
 package com.corneye.app.ui.theme
-
-import android.app.Activity
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
@@ -38,7 +39,7 @@ fun CornEyeTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = StatusBarGold.toArgb()
+            window.statusBarColor = 0x80000000.toInt()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
