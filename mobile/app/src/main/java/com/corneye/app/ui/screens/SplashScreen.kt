@@ -1,3 +1,5 @@
+// Splash Screen
+// Animated launch screen shown on app start; auto-navigates after a brief delay.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.Image
@@ -33,6 +35,7 @@ fun SplashScreen(navController: NavController) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(GoldenBackground)
                 .background(StatusBarGold)
                 .windowInsetsPadding(WindowInsets.statusBars)
         )
