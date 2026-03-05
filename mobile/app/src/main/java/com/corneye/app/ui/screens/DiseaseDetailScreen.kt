@@ -1,3 +1,5 @@
+// Disease Detail Screen
+// Full information on a specific disease: symptoms, causes, and treatment.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -17,10 +19,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
@@ -64,11 +68,15 @@ fun DiseaseDetailScreen(
     val typeBorderColor = when (disease.type) {
         "Fungal" -> Color(0xFFC62828)
         "Bacterial" -> GreenPrimary
+        "Oomycete" -> Color(0xFF6A1B9A)
+        "Viral" -> Color(0xFFE65100)
         else -> TextSecondary
     }
     val typeBgColor = when (disease.type) {
         "Fungal" -> White
         "Bacterial" -> White
+        "Oomycete" -> White
+        "Viral" -> White
         else -> White
     }
     val descriptionTitleColor = when (disease.type) {
@@ -107,15 +115,22 @@ fun DiseaseDetailScreen(
                 .fillMaxSize()
                 .background(Background)
                 .padding(bottom = paddingValues.calculateBottomPadding())
-                .verticalScroll(rememberScrollState())
         ) {
-            // Status bar background
+            // Status bar background - pinned outside scroll
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
+
+            // Scrollable content
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
 
             // Golden header
             Box(
@@ -157,35 +172,38 @@ fun DiseaseDetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(320.dp)
+                    .height(280.dp)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        when {
-                            disease.name.contains("Northern") -> Color(0xFF5D7A3A)
-                            disease.name.contains("Rust") -> Color(0xFF8B6914)
-                            disease.name.contains("Gray") -> Color(0xFF6B8E5A)
-                            disease.name.contains("Bacterial") -> Color(0xFF4A7A3A)
-                            disease.name.contains("Southern") -> Color(0xFF7A6B3A)
-                            else -> GreenPrimary
-                        }
-                    ),
+                    .background(GreenPrimary.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
-                // Placeholder icon
+                // Fallback icon (shown behind if image not loaded)
                 Icon(
                     Icons.Default.Eco,
                     contentDescription = null,
-                    tint = White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(120.dp)
+                    tint = GreenPrimary.copy(alpha = 0.2f),
+                    modifier = Modifier.size(100.dp)
+                )
+                // Real disease photo
+                AsyncImage(
+                    model = disease.imageUrl,
+                    contentDescription = disease.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(16.dp))
                 )
 
-                // Risk badge overlay at bottom center
-                Box(
+                // Risk badge + Type badge stacked at bottom center inside the image
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .offset(y = (-16).dp)
+                        .padding(bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Risk badge
                     Surface(
                         shape = RoundedCornerShape(24.dp),
                         color = riskBgColor,
@@ -199,27 +217,20 @@ fun DiseaseDetailScreen(
                             modifier = Modifier.padding(horizontal = 28.dp, vertical = 10.dp)
                         )
                     }
-                }
-            }
-
-            // Disease type badge
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = typeBgColor,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, typeBorderColor)
-                ) {
-                    Text(
-                        text = "${disease.type} Disease",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = typeBorderColor,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
+                    // Type badge
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = typeBgColor,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, typeBorderColor)
+                    ) {
+                        Text(
+                            text = "${disease.type} Disease",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = typeBorderColor,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
 
@@ -265,6 +276,7 @@ fun DiseaseDetailScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+            } // end inner scroll Column
         }
     }
 }
