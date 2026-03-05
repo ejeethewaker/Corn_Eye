@@ -1,3 +1,5 @@
+// Privacy Policy Screen
+// Displays the app's data privacy policy and user rights.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -37,7 +39,7 @@ fun PrivacyPolicyScreen(navController: NavController) {
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -56,6 +58,7 @@ fun PrivacyPolicyScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
