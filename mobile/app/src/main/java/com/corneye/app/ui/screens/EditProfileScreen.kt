@@ -1,5 +1,12 @@
+// Edit Profile Screen
+// Form for farmers to update their name, contact, location, and farm details.
 package com.corneye.app.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,25 +23,126 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import android.util.Base64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditProfileScreen(navController: NavController) {
-    var fullName by remember { mutableStateOf("CornEye") }
-    var email by remember { mutableStateOf("corneye@gmail.co") }
-    var phone by remember { mutableStateOf("09272074346") }
-    var location by remember { mutableStateOf("Cebu City, Philippines") }
-    var farmSize by remember { mutableStateOf("2.5") }
+    val context = LocalContext.current
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
+
+    var fullName by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
+    var location by remember { mutableStateOf("") }
+    var farmSize by remember { mutableStateOf("") }
+    var photoUrl by remember { mutableStateOf("") }
+    var localPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    var isUploadingPhoto by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
     var showPhotoDialog by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(-1) }
+    var isSaving by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+
+    // Helper: show instantly, then compress to Base64 and save directly to Realtime Database
+    val uploadPhoto: (Uri) -> Unit = { uri ->
+        localPhotoUri = uri          // show immediately
+        isUploadingPhoto = true
+        scope.launch {
+            try {
+                val base64 = withContext(Dispatchers.IO) {
+                    val stream = context.contentResolver.openInputStream(uri)!!
+                    val original = BitmapFactory.decodeStream(stream)
+                    stream.close()
+                    // Scale to max 256px to keep the string size manageable
+                    val maxDim = 256f
+                    val scale = minOf(maxDim / original.width, maxDim / original.height, 1f)
+                    val scaled = if (scale < 1f)
+                        Bitmap.createScaledBitmap(
+                            original,
+                            (original.width * scale).toInt(),
+                            (original.height * scale).toInt(),
+                            true
+                        )
+                    else original
+                    val baos = ByteArrayOutputStream()
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 70, baos)
+                    Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+                }
+                FirebaseHelper.farmersRef().child(userId)
+                    .updateChildren(mapOf("profile_photo_url" to base64))
+                    .addOnSuccessListener {
+                        photoUrl = base64
+                        isUploadingPhoto = false
+                    }
+                    .addOnFailureListener { isUploadingPhoto = false }
+            } catch (e: Exception) {
+                isUploadingPhoto = false
+            }
+        }
+    }
+
+    // Gallery launcher
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? -> uri?.let { uploadPhoto(it) } }
+
+    // Camera launcher
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success: Boolean -> if (success) cameraUri?.let { uploadPhoto(it) } }
+
+    // Load profile from Firebase
+    LaunchedEffect(userId) {
+        if (userId.isNotEmpty()) {
+            FirebaseHelper.farmersRef().child(userId).get()
+                .addOnSuccessListener { snapshot ->
+                    if (snapshot.exists()) {
+                        fullName = snapshot.child("fullname").getValue(String::class.java) ?: ""
+                        email = snapshot.child("email_address").getValue(String::class.java) ?: ""
+                        phone = snapshot.child("phone_num").getValue(String::class.java) ?: ""
+                        location = snapshot.child("farm_location").getValue(String::class.java) ?: ""
+                        farmSize = snapshot.child("farm_area").getValue(String::class.java) ?: ""
+                        photoUrl = snapshot.child("profile_photo_url").getValue(String::class.java) ?: ""
+                    }
+                    isLoading = false
+                }
+                .addOnFailureListener { isLoading = false }
+        }
+    }
+
+    val initials = fullName.split(" ")
+        .mapNotNull { it.firstOrNull()?.uppercase() }
+        .joinToString("")
+        .take(2)
+
+    val photoBytes = remember(photoUrl) {
+        if (photoUrl.isNotEmpty()) {
+            try { Base64.decode(photoUrl, Base64.DEFAULT) }
+            catch (e: Exception) { null }
+        } else null
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -47,7 +155,7 @@ fun EditProfileScreen(navController: NavController) {
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -66,6 +174,7 @@ fun EditProfileScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -125,12 +234,31 @@ fun EditProfileScreen(navController: NavController) {
                             .border(3.dp, Color.Black, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "C",
-                            fontSize = 46.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
+                        if (localPhotoUri != null || photoBytes != null) {
+                            AsyncImage(
+                                model = localPhotoUri ?: photoBytes,
+                                contentDescription = "Profile photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = initials.ifEmpty { "?" },
+                                fontSize = 46.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                        }
+                        if (isUploadingPhoto) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.4f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(color = White, modifier = Modifier.size(32.dp))
+                            }
+                        }
                     }
                     // Camera icon
                     Box(
@@ -219,7 +347,27 @@ fun EditProfileScreen(navController: NavController) {
 
                 // Save Changes button
                 Button(
-                    onClick = { showSuccessDialog = true },
+                    onClick = {
+                        if (userId.isNotEmpty()) {
+                            isSaving = true
+                            val updates = mapOf(
+                                "fullname" to fullName,
+                                "email_address" to email,
+                                "phone_num" to phone,
+                                "farm_location" to location,
+                                "farm_area" to farmSize
+                            )
+                            FirebaseHelper.farmersRef().child(userId).updateChildren(updates)
+                                .addOnSuccessListener {
+                                    isSaving = false
+                                    showSuccessDialog = true
+                                }
+                                .addOnFailureListener {
+                                    isSaving = false
+                                }
+                        }
+                    },
+                    enabled = !isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp),
@@ -371,7 +519,15 @@ fun EditProfileScreen(navController: NavController) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showPhotoDialog = false },
+                            .clickable {
+                                showPhotoDialog = false
+                                val tmpFile = File.createTempFile("profile_", ".jpg", context.cacheDir)
+                                val uri = FileProvider.getUriForFile(
+                                    context, "${context.packageName}.fileprovider", tmpFile
+                                )
+                                cameraUri = uri
+                                cameraLauncher.launch(uri)
+                            },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = GoldenBackground)
                     ) {
@@ -418,7 +574,10 @@ fun EditProfileScreen(navController: NavController) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showPhotoDialog = false },
+                            .clickable {
+                                showPhotoDialog = false
+                                galleryLauncher.launch("image/*")
+                            },
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = Color(0xFF37474F))
                     ) {
@@ -492,7 +651,7 @@ private fun GoldenInputField(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = GoldenBackground),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Column(
@@ -516,8 +675,8 @@ private fun GoldenInputField(
                     .fillMaxWidth()
                     .height(56.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.White,
-                    unfocusedBorderColor = Color.White,
+                    focusedBorderColor = BrownButton,
+                    unfocusedBorderColor = Color(0xFFCCCCCC),
                     focusedContainerColor = Color.White,
                     unfocusedContainerColor = Color.White,
                     cursorColor = BrownButton
