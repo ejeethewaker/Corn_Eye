@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Fill the entire icon area with the same golden background color,
+         so the mandatory circular clip is invisible against the splash background -->
+    <item>
+        <color android:color="#E5A220"/>
+    </item>
+
+    <!-- Logo sized to 110dp × 110dp so its corners (at ~77.8dp from center)
+         stay within the 80dp-radius circle mask — entire logo is fully visible -->
+    <item
+        android:width="110dp"
+        android:height="110dp"
+        android:gravity="center">
+        <bitmap
+            android:src="@drawable/favicon"
+            android:gravity="fill" />
+    </item>
+</layer-list>
