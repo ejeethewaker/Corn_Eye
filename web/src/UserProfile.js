@@ -1,77 +1,90 @@
-import React, { useState } from 'react';
+// Farmer Profile
+// Detailed view of an individual farmer's scan history and account info.
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { database } from './firebase';
+import { ref, get, update } from 'firebase/database';
 import './UserProfile.css';
 import './Dashboard.css';
 
-const usersData = {
-  1: {
-    id: 1,
-    name: 'Juan Dela Cruz',
-    email: 'juan@email.com',
-    status: 'Active',
-    avatar: '👨‍🌾',
-    avatarBg: '#2196f3',
-    location: 'Nueva Ecija, Philippines',
-    joined: 'August 15, 2024',
-    farmArea: '2.5 hectares',
-    totalScans: 47,
-    scansChange: '↑ 5 this week',
-    diseasesFound: 12,
-    infectionRate: '25% infection rate',
-  },
-  2: {
-    id: 2,
-    name: 'Maria Santos',
-    email: 'maria@email.com',
-    status: 'Active',
-    avatar: '👩‍🌾',
-    avatarBg: '#4caf50',
-    location: 'Pampanga, Philippines',
-    joined: 'September 3, 2024',
-    farmArea: '1.8 hectares',
-    totalScans: 32,
-    scansChange: '↑ 3 this week',
-    diseasesFound: 8,
-    infectionRate: '20% infection rate',
-  },
-  3: {
-    id: 3,
-    name: 'Pedro Reyes',
-    email: 'pedro@email.com',
-    status: 'Inactive',
-    avatar: '👨‍🌾',
-    avatarBg: '#e91e63',
-    location: 'Tarlac, Philippines',
-    joined: 'July 20, 2024',
-    farmArea: '3.0 hectares',
-    totalScans: 15,
-    scansChange: '↑ 0 this week',
-    diseasesFound: 5,
-    infectionRate: '33% infection rate',
-  },
-  4: {
-    id: 4,
-    name: 'Ana Garcia',
-    email: 'ana@email.com',
-    status: 'Active',
-    avatar: '👩‍🌾',
-    avatarBg: '#9c27b0',
-    location: 'Isabela, Philippines',
-    joined: 'October 10, 2024',
-    farmArea: '2.0 hectares',
-    totalScans: 28,
-    scansChange: '↑ 4 this week',
-    diseasesFound: 6,
-    infectionRate: '21% infection rate',
-  },
-};
+const avatarColors = ['#2196f3', '#4caf50', '#e91e63', '#9c27b0', '#ff9800', '#00bcd4'];
 
 function UserProfile() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const user = usersData[id];
+  const [user, setUser] = useState(null);
+  const [isActive, setIsActive] = useState(true);
+  const [totalScans, setTotalScans] = useState(0);
+  const [diseasesFound, setDiseasesFound] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [adminName, setAdminName] = useState('Admin User');
+  const [adminInitials, setAdminInitials] = useState('AD');
 
-  const [isActive, setIsActive] = useState(user ? user.status === 'Active' : true);
+  useEffect(() => {
+    // Load admin info for sidebar
+    const adminEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail');
+    if (adminEmail) {
+      const adminsRef = ref(database, 'admins');
+      get(adminsRef).then(snapshot => {
+        if (snapshot.exists()) {
+          const admins = snapshot.val();
+          const matched = Object.values(admins).find(a => a.email === adminEmail);
+          if (matched) {
+            const name = matched.fullname || matched.name || 'Admin User';
+            setAdminName(name);
+            const parts = name.split(' ');
+            setAdminInitials(parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() : name.substring(0, 2).toUpperCase());
+          }
+        }
+      });
+    }
+
+    // Load farmer data
+    if (id) {
+      const farmerRef = ref(database, `farmers/${id}`);
+      get(farmerRef).then(snapshot => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          const fullname = data.fullname || data.name || 'Unknown';
+          const createdAt = data.createdAt ? new Date(data.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
+          const initials = fullname.split(' ').map(w => w[0]).join('').toUpperCase().substring(0, 2);
+          setUser({
+            id: id,
+            name: fullname,
+            email: data.email_address || data.email || '',
+            status: data.status || 'active',
+            initials: initials,
+            avatarBg: avatarColors[fullname.codePointAt(0) % avatarColors.length],
+            location: data.farm_location || 'Not set',
+            joined: createdAt,
+            farmArea: data.farm_area ? `${data.farm_area} hectares` : 'Not set',
+            photoUrl: data.profile_photo_url ? `data:image/jpeg;base64,${data.profile_photo_url}` : null,
+          });
+          setIsActive((data.status || 'active') === 'active');
+        }
+        setLoading(false);
+      }).catch(() => setLoading(false));
+
+      // Load scan stats
+      const resultsRef = ref(database, 'analysis_results');
+      get(resultsRef).then(snapshot => {
+        if (snapshot.exists()) {
+          let scans = 0;
+          let diseases = 0;
+          const results = snapshot.val();
+          Object.values(results).forEach(r => {
+            if (r.farmer_id === id) {
+              scans++;
+              const label = r.analysis_label || '';
+              if (label && label.toLowerCase() !== 'healthy') diseases++;
+            }
+          });
+          setTotalScans(scans);
+          setDiseasesFound(diseases);
+        }
+      });
+    }
+  }, [id]);
 
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
@@ -83,11 +96,28 @@ function UserProfile() {
 
   const handleDeactivate = () => {
     setIsActive(false);
+    if (id) {
+      update(ref(database, `farmers/${id}`), { status: 'inactive' });
+    }
   };
 
   const handleToggle = () => {
-    setIsActive(!isActive);
+    const newStatus = !isActive;
+    setIsActive(newStatus);
+    if (id) {
+      update(ref(database, `farmers/${id}`), { status: newStatus ? 'active' : 'inactive' });
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="dashboard-container">
+        <main className="dashboard-main">
+          <h1>Loading...</h1>
+        </main>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -101,6 +131,8 @@ function UserProfile() {
       </div>
     );
   }
+
+  const infectionRate = totalScans > 0 ? Math.round((diseasesFound / totalScans) * 100) : 0;
 
   return (
     <div className="dashboard-container">
@@ -116,9 +148,9 @@ function UserProfile() {
           </div>
 
           <div className="sidebar-user-card sidebar-user-clickable" onClick={() => navigate('/profile')}>
-            <div className="user-avatar">AD</div>
+            <div className="user-avatar">{adminInitials}</div>
             <div className="user-info">
-              <span className="user-name">Admin User</span>
+              <span className="user-name">{adminName}</span>
               <span className="user-role">Administrator</span>
             </div>
           </div>
@@ -184,8 +216,13 @@ function UserProfile() {
         {/* Profile Card */}
         <div className="up-profile-card">
           <div className="up-avatar-section">
-            <div className="up-avatar" style={{ backgroundColor: user.avatarBg }}>
-              {user.avatar}
+            <div
+              className="up-avatar"
+              style={{ backgroundColor: user.photoUrl ? 'transparent' : user.avatarBg, overflow: 'hidden', padding: 0 }}
+            >
+              {user.photoUrl
+                ? <img src={user.photoUrl} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                : user.initials}
             </div>
           </div>
           <div className="up-info-section">
@@ -230,14 +267,13 @@ function UserProfile() {
         <h3 className="up-stats-title">Statistics</h3>
         <div className="up-stats-grid">
           <div className="up-stat-card up-stat-blue">
-            <h2 className="up-stat-number blue">{user.totalScans}</h2>
+            <h2 className="up-stat-number blue">{totalScans}</h2>
             <p className="up-stat-label">Total Scans</p>
-            <span className="up-stat-change green">{user.scansChange}</span>
           </div>
           <div className="up-stat-card up-stat-red">
-            <h2 className="up-stat-number red">{user.diseasesFound}</h2>
+            <h2 className="up-stat-number red">{diseasesFound}</h2>
             <p className="up-stat-label">Diseases Found</p>
-            <span className="up-stat-change red">{user.infectionRate}</span>
+            <span className="up-stat-change red">{infectionRate}% infection rate</span>
           </div>
         </div>
       </main>
