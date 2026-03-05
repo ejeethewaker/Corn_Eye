@@ -1,6 +1,6 @@
+// User Preferences
+// Manages persistent local storage for user session data via DataStore.
 package com.corneye.app.data
-
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
