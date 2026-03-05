@@ -1,3 +1,5 @@
+// Settings Screen
+// App preferences for language, notifications, and account options.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.Image
@@ -43,7 +45,7 @@ fun SettingsScreen(navController: NavController) {
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> { /* Already here */ }
@@ -62,6 +64,7 @@ fun SettingsScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
