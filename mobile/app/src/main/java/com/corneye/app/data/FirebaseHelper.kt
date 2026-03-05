@@ -1,13 +1,18 @@
+// Firebase Helper
+// Centralized access to Firebase Realtime Database node references.
 package com.corneye.app.data
-
-import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ktx.database
 import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
 
 object FirebaseHelper {
     val database: FirebaseDatabase by lazy {
         Firebase.database("https://corneye-ec181-default-rtdb.asia-southeast1.firebasedatabase.app")
     }
+
+    val storage by lazy { Firebase.storage }
+
+    fun profilePhotosRef() = storage.reference.child("profile_photos")
 
     // Farmer
     fun farmersRef() = database.getReference("farmers")
@@ -32,6 +37,12 @@ object FirebaseHelper {
 
     // SubscriptionPlan
     fun subscriptionPlansRef() = database.getReference("subscription_plans")
+
+    // Password Resets (for forgot password OTP flow)
+    fun passwordResetsRef() = database.getReference("password_resets")
+
+    // Encode email to a Firebase-safe key (dots → commas)
+    fun emailToKey(email: String): String = email.replace(".", ",")
 
     // Legacy references (kept for compatibility)
     fun usersRef() = farmersRef()
