@@ -1,3 +1,5 @@
+// Admin Profile
+// View and update the admin account details and profile photo.
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { database } from './firebase';
@@ -9,16 +11,15 @@ function Profile() {
   const navigate = useNavigate();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [fullName, setFullName] = useState('John Doe');
-  const [email, setEmail] = useState('johndoe@email.com');
-  const [phone, setPhone] = useState('09272074346');
-  const [location, setLocation] = useState('Cebu City, Philippines');
-  const [farmSize, setFarmSize] = useState('2.5 Hectares');
-  const [totalScans, setTotalScans] = useState(0);
-  const [weeklyScans, setWeeklyScans] = useState(0);
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [location, setLocation] = useState('');
+  const [farmSize, setFarmSize] = useState('');
   const [profilePhoto, setProfilePhoto] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: '' });
+  const [adminKey, setAdminKey] = useState('');
   const fileInputRef = useRef(null);
 
   const showToast = (message, type = 'success') => {
@@ -26,22 +27,28 @@ function Profile() {
     setTimeout(() => setToast({ show: false, message: '', type: '' }), 3000);
   };
 
-  // Load farmer profile from Firebase on mount
+  // Load admin profile from Firebase using stored email
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const profileRef = ref(database, 'farmers/farmer1');
-        const snapshot = await get(profileRef);
+        const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+        const adminsRef = ref(database, 'admins');
+        const snapshot = await get(adminsRef);
         if (snapshot.exists()) {
-          const data = snapshot.val();
-          setFullName(data.fullName || 'John Doe');
-          setEmail(data.email || 'johndoe@email.com');
-          setPhone(data.phone || '09272074346');
-          setLocation(data.location || 'Cebu City, Philippines');
-          setFarmSize(data.farmSize || '2.5 Hectares');
-          setTotalScans(data.totalScans || 0);
-          setWeeklyScans(data.weeklyScans || 0);
-          setProfilePhoto(data.profilePhoto || '');
+          const admins = snapshot.val();
+          const matchedKey = Object.keys(admins).find(
+            (key) => admins[key].email === storedEmail
+          );
+          if (matchedKey) {
+            const data = admins[matchedKey];
+            setAdminKey(matchedKey);
+            setFullName(data.fullName || '');
+            setEmail(data.email || '');
+            setPhone(data.phone || '');
+            setLocation(data.location || '');
+            setFarmSize(data.farmSize || '');
+            setProfilePhoto(data.profilePhoto || '');
+          }
         }
       } catch (err) {
         console.error('Failed to load profile:', err);
@@ -69,9 +76,11 @@ function Profile() {
       const base64 = event.target.result;
       setProfilePhoto(base64);
       try {
-        const profileRef = ref(database, 'farmers/farmer1');
-        await update(profileRef, { profilePhoto: base64 });
-        showToast('Profile photo updated!', 'success');
+        if (adminKey) {
+          const profileRef = ref(database, `admins/${adminKey}`);
+          await update(profileRef, { profilePhoto: base64 });
+          showToast('Profile photo updated!', 'success');
+        }
       } catch (err) {
         console.error('Failed to save photo:', err);
         showToast('Failed to save photo.', 'error');
@@ -92,16 +101,18 @@ function Profile() {
     e.preventDefault();
     setSaving(true);
     try {
-      const profileRef = ref(database, 'farmers/farmer1');
-      await update(profileRef, {
-        fullName,
-        email,
-        phone,
-        location,
-        farmSize,
-      });
-      showToast('Profile updated successfully!', 'success');
-      setIsEditing(false);
+      if (adminKey) {
+        const profileRef = ref(database, `admins/${adminKey}`);
+        await update(profileRef, {
+          fullName,
+          email,
+          phone,
+          location,
+          farmSize,
+        });
+        showToast('Profile updated successfully!', 'success');
+        setIsEditing(false);
+      }
     } catch (err) {
       console.error('Failed to save profile:', err);
       showToast('Failed to save profile. Please try again.', 'error');
@@ -138,10 +149,10 @@ function Profile() {
           </div>
 
           <div className="sidebar-user-card sidebar-user-clickable" onClick={() => navigate('/profile')}>
-            <div className="user-avatar">JD</div>
+            <div className="user-avatar">{initials || '?'}</div>
             <div className="user-info">
-              <span className="user-name">John Doe</span>
-              <span className="user-role">Farmer</span>
+              <span className="user-name">{fullName || 'Admin'}</span>
+              <span className="user-role">Administrator</span>
             </div>
           </div>
 
@@ -307,30 +318,22 @@ function Profile() {
             </form>
           </>
         ) : (
-          /* ── View Mode (Farmer Profile) ── */
+          /* ── View Mode (Admin Profile) ── */
           <>
-            <h1 className="ap-title">Profile</h1>
+            <h1 className="ap-title">Admin Profile</h1>
 
             {/* Profile Card */}
             <div className="ap-profile-card">
               {profilePhoto ? (
                 <img src={profilePhoto} alt="Profile" className="ap-avatar ap-avatar-img" />
               ) : (
-                <div className="ap-avatar" style={{ fontSize: '36px', fontWeight: 700 }}>{initials}</div>
+                <div className="ap-avatar" style={{ fontSize: '36px', fontWeight: 700 }}>{initials || '👨‍💼'}</div>
               )}
               <div className="ap-card-info">
                 <h2 className="ap-card-name">{fullName}</h2>
                 <p className="ap-card-email">{email}</p>
-                <div className="ap-scan-stats">
-                  <div className="ap-scan-stat">
-                    <span className="ap-scan-number">{totalScans}</span>
-                    <span className="ap-scan-label">Total Scans</span>
-                  </div>
-                  <div className="ap-scan-stat">
-                    <span className="ap-scan-number">{weeklyScans}</span>
-                    <span className="ap-scan-label">This Week</span>
-                  </div>
-                </div>
+                <p className="ap-card-role">Administrator Role</p>
+                <p className="ap-card-since">Member since: January 2024</p>
               </div>
               <button className="ap-edit-btn" onClick={() => setIsEditing(true)}>
                 ✏️ Edit
@@ -340,27 +343,27 @@ function Profile() {
             {/* Account Information */}
             <h2 className="ap-section-title">Account Information</h2>
 
-            <div className="ap-info-field ap-info-field-icon">
-              <span className="ap-field-icon">📞</span>
-              <div>
-                <span className="ap-info-label">Phone Number</span>
-                <span className="ap-info-value">{phone}</span>
-              </div>
+            <div className="ap-info-field">
+              <span className="ap-info-label">Full Name</span>
+              <strong className="ap-info-value">{fullName}</strong>
             </div>
 
-            <div className="ap-info-field ap-info-field-icon">
-              <span className="ap-field-icon">📍</span>
-              <div>
-                <span className="ap-info-label">Location</span>
-                <span className="ap-info-value">{location}</span>
-              </div>
+            <div className="ap-info-field">
+              <span className="ap-info-label">Email Address</span>
+              <strong className="ap-info-value">{email}</strong>
             </div>
 
-            <div className="ap-info-field ap-info-field-icon">
-              <span className="ap-field-icon">🚜</span>
-              <div>
-                <span className="ap-info-label">Farm Size</span>
-                <span className="ap-info-value">{farmSize}</span>
+            <div className="ap-info-row">
+              <div className="ap-info-half ap-info-field">
+                <span className="ap-info-label">Role</span>
+                <strong className="ap-info-value">Administrator</strong>
+              </div>
+              <div className="ap-info-half ap-info-field">
+                <span className="ap-info-label">Account Status</span>
+                <span className="ap-status-active">
+                  <span className="ap-status-dot" />
+                  <strong>Active</strong>
+                </span>
               </div>
             </div>
           </>
