@@ -1,3 +1,5 @@
+// Disease Library Screen
+// Browse all corn diseases detectable by the app with brief descriptions.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -10,8 +12,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Eco
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
@@ -31,7 +32,8 @@ data class CornDisease(
     val type: String,
     val riskLevel: String,
     val shortDescription: String,
-    val fullDescription: String
+    val fullDescription: String,
+    val imageUrl: String = ""
 )
 
 val cornDiseases = listOf(
@@ -39,38 +41,28 @@ val cornDiseases = listOf(
         name = "Northern Leaf Blight",
         type = "Fungal",
         riskLevel = "High Risk",
-        shortDescription = "Long gray-green elliptical lesions on leaves, rapid spread",
-        fullDescription = "Northern Leaf Blight, also known as Turcicum Leaf Blight, is a devastating fungal disease that primarily affects corn plants. It manifests as long, narrow tan or grayish-green elliptical lesions on leaves, which can rapidly expand under favorable conditions.\n\nThe disease thrives in humid environments and can cause severe defoliation, significantly reducing crop yield and quality."
+        shortDescription = "Long gray-green elliptical lesions on leaves, rapid spread in humid conditions.",
+        fullDescription = "Northern Leaf Blight (NLB), caused by Exserohilum turcicum, is a major fungal disease of corn. It appears as long, narrow, tan to grayish-green elliptical lesions (1–6 inches) on leaves.\n\nUnder humid, cool conditions the lesions expand rapidly and coalesce, causing severe defoliation. Yield losses up to 50% can occur in susceptible hybrids when disease develops before tasseling.\n\nManagement: Use resistant hybrids, rotate crops, apply fungicides (triazoles or strobilurins) at early disease onset.",
+        imageUrl = "https://inaturalist-open-data.s3.amazonaws.com/photos/96642712/medium.jpg"
     ),
     CornDisease(
-        name = "Common Leaf Rust",
+        name = "Common Rust",
         type = "Fungal",
         riskLevel = "Medium Risk",
-        shortDescription = "Orange-brown pustules scattered on leaf surfaces",
-        fullDescription = "Common Rust is a widespread fungal disease affecting corn crops worldwide. It appears as small, circular to elongated pustules that are cinnamon-brown to orange-brown in color.\n\nThese pustules break through the leaf surface and release masses of powdery spores. While generally not as severe as other leaf diseases, heavy infections can significantly reduce photosynthetic capacity and yield."
+        shortDescription = "Brick-red to orange-brown pustules scattered on both leaf surfaces.",
+        fullDescription = "Common Rust, caused by Puccinia sorghi, is a widespread fungal disease that affects corn worldwide. Cinnamon-brown to brick-red pustules appear on both upper and lower leaf surfaces, releasing masses of powdery spores.\n\nThe pathogen spreads via wind-blown spores and thrives under cool (60–77°F), humid conditions. While usually not severe in tropical climates, heavy infections on susceptible sweet corn or seed corn can significantly reduce yield.\n\nManagement: Plant resistant hybrids, apply fungicides (propiconazole, azoxystrobin) when pustules first appear.",
+        imageUrl = "https://inaturalist-open-data.s3.amazonaws.com/photos/224464294/medium.jpeg"
     ),
     CornDisease(
         name = "Gray Leaf Spot",
         type = "Fungal",
-        riskLevel = "Medium Risk",
-        shortDescription = "Rectangular gray spots parallel to leaf veins",
-        fullDescription = "Gray Leaf Spot is a serious foliar disease of corn characterized by distinctive rectangular gray to tan lesions that develop parallel to the leaf veins.\n\nThis fungal pathogen can cause extensive defoliation in susceptible hybrids, particularly under prolonged periods of high humidity and warm temperatures. The disease has become increasingly problematic in continuous corn production systems."
-    ),
-    CornDisease(
-        name = "Bacterial Leaf Streak",
-        type = "Bacterial",
-        riskLevel = "Low Risk",
-        shortDescription = "Long narrow orange streaks between leaf veins",
-        fullDescription = "Bacterial Leaf Streak is an emerging bacterial disease of corn that produces long, narrow orange to brown streaks on the leaves. The disease is spread by wind-driven rain and can develop rapidly during periods of warm, wet weather.\n\nWhile typically not as devastating as fungal leaf diseases, it can reduce photosynthetic area and overall plant health in susceptible hybrids."
-    ),
-    CornDisease(
-        name = "Southern Leaf Blight",
-        type = "Fungal",
         riskLevel = "High Risk",
-        shortDescription = "Large tan lesions with dark borders on leaves",
-        fullDescription = "Southern Leaf Blight is a highly destructive fungal disease that can cause severe yield losses in susceptible corn hybrids. The disease produces large tan to brown lesions with distinct dark reddish-brown borders.\n\nIt spreads rapidly during warm, humid weather and can quickly defoliate entire fields. The disease gained notoriety during the 1970 corn blight epidemic."
+        shortDescription = "Rectangular gray-tan lesions bordered by leaf veins, reducing photosynthesis.",
+        fullDescription = "Gray Leaf Spot (GLS), caused by Cercospora zeae-maydis, is one of the most yield-limiting corn diseases worldwide. Lesions are rectangular, gray to tan, and run parallel between leaf veins giving them a distinctive blocky appearance.\n\nThe disease thrives under prolonged high relative humidity (≥90%) and temperatures of 75–85°F. Severe infection causes premature death of leaves and significant yield reductions.\n\nManagement: Plant resistant hybrids, use crop rotation, apply foliar fungicides at VT/R1 growth stage.",
+        imageUrl = "https://inaturalist-open-data.s3.amazonaws.com/photos/88462941/medium.jpg"
     )
 )
+
 
 @Composable
 fun DiseaseListScreen(navController: NavController) {
@@ -106,6 +98,7 @@ fun DiseaseListScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -184,28 +177,29 @@ fun DiseaseCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // Disease image placeholder
+            // Disease image
             Box(
                 modifier = Modifier
                     .size(100.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        when {
-                            disease.name.contains("Northern") -> Color(0xFF5D7A3A)
-                            disease.name.contains("Rust") -> Color(0xFF8B6914)
-                            disease.name.contains("Gray") -> Color(0xFF6B8E5A)
-                            disease.name.contains("Bacterial") -> Color(0xFF4A7A3A)
-                            disease.name.contains("Southern") -> Color(0xFF7A6B3A)
-                            else -> GreenPrimary
-                        }
-                    ),
+                    .background(GreenPrimary.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
+                // Fallback icon visible if image fails to load
                 Icon(
                     Icons.Default.Eco,
                     contentDescription = null,
-                    tint = White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(48.dp)
+                    tint = GreenPrimary.copy(alpha = 0.4f),
+                    modifier = Modifier.size(40.dp)
+                )
+                // Disease photo drawn on top
+                AsyncImage(
+                    model = disease.imageUrl,
+                    contentDescription = disease.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(RoundedCornerShape(12.dp))
                 )
             }
 
@@ -252,13 +246,17 @@ fun DiseaseCard(
 fun TypeBadge(type: String) {
     val bgColor = when (type) {
         "Fungal" -> Color(0xFFE8F5E9)
-        "Bacterial" -> Color(0xFFE8F5E9)
-        else -> Color(0xFFE8F5E9)
+        "Bacterial" -> Color(0xFFE3F2FD)
+        "Oomycete" -> Color(0xFFF3E5F5)
+        "Viral" -> Color(0xFFFFF3E0)
+        else -> Color(0xFFF5F5F5)
     }
     val textColor = when (type) {
         "Fungal" -> GreenPrimary
-        "Bacterial" -> GreenPrimary
-        else -> GreenPrimary
+        "Bacterial" -> Color(0xFF1565C0)
+        "Oomycete" -> Color(0xFF6A1B9A)
+        "Viral" -> Color(0xFFE65100)
+        else -> TextSecondary
     }
 
     Surface(
