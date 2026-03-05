@@ -1,3 +1,5 @@
+// Change Password Screen
+// Form to update the current account password with validation.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -22,12 +24,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
 @Composable
 fun ChangePasswordScreen(navController: NavController) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(4) }
     var currentPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
@@ -35,6 +41,10 @@ fun ChangePasswordScreen(navController: NavController) {
     var showCurrentPassword by remember { mutableStateOf(false) }
     var showNewPassword by remember { mutableStateOf(false) }
     var showConfirmPassword by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var successMessage by remember { mutableStateOf<String?>(null) }
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -66,6 +76,7 @@ fun ChangePasswordScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -169,10 +180,10 @@ fun ChangePasswordScreen(navController: NavController) {
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = GoldenBackground,
-                            unfocusedBorderColor = GoldenBackground,
-                            focusedContainerColor = GoldenBackground,
-                            unfocusedContainerColor = GoldenBackground
+                            focusedBorderColor = Color.White,
+                            unfocusedBorderColor = Color.White,
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
                         ),
                         singleLine = true
                     )
@@ -206,10 +217,10 @@ fun ChangePasswordScreen(navController: NavController) {
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = GoldenBackground,
-                            unfocusedBorderColor = GoldenBackground,
-                            focusedContainerColor = GoldenBackground,
-                            unfocusedContainerColor = GoldenBackground
+                            focusedBorderColor = Color.White,
+                            unfocusedBorderColor = Color.White,
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
                         ),
                         singleLine = true
                     )
@@ -243,10 +254,10 @@ fun ChangePasswordScreen(navController: NavController) {
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = GoldenBackground,
-                            unfocusedBorderColor = GoldenBackground,
-                            focusedContainerColor = GoldenBackground,
-                            unfocusedContainerColor = GoldenBackground
+                            focusedBorderColor = Color.White,
+                            unfocusedBorderColor = Color.White,
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
                         ),
                         singleLine = true
                     )
@@ -270,16 +281,99 @@ fun ChangePasswordScreen(navController: NavController) {
 
                 Spacer(modifier = Modifier.height(28.dp))
 
+                // Error message
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        color = StatusError,
+                        fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                }
+
+                // Success message
+                if (successMessage != null) {
+                    Text(
+                        text = successMessage!!,
+                        color = GreenPrimary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    )
+                }
+
                 // Update Password button
                 Button(
-                    onClick = { navController.popBackStack() },
+                    onClick = {
+                        errorMessage = null
+                        successMessage = null
+
+                        when {
+                            currentPassword.isBlank() || newPassword.isBlank() || confirmPassword.isBlank() -> {
+                                errorMessage = "Please fill in all fields"
+                            }
+                            newPassword.length < 8 -> {
+                                errorMessage = "New password must be at least 8 characters"
+                            }
+                            !newPassword.any { it.isUpperCase() } -> {
+                                errorMessage = "New password must contain an uppercase letter"
+                            }
+                            !newPassword.any { it.isDigit() || !it.isLetterOrDigit() } -> {
+                                errorMessage = "New password must contain a number or special character"
+                            }
+                            newPassword != confirmPassword -> {
+                                errorMessage = "New passwords do not match"
+                            }
+                            userId.isEmpty() -> {
+                                errorMessage = "User session not found. Please log in again."
+                            }
+                            else -> {
+                                isLoading = true
+                                // Verify current password from Firebase
+                                FirebaseHelper.farmersRef().child(userId).get()
+                                    .addOnSuccessListener { snapshot ->
+                                        val storedPassword = snapshot.child("password").getValue(String::class.java) ?: ""
+                                        if (storedPassword != currentPassword) {
+                                            isLoading = false
+                                            errorMessage = "Current password is incorrect"
+                                        } else {
+                                            // Update password in Firebase
+                                            FirebaseHelper.farmersRef().child(userId).child("password").setValue(newPassword)
+                                                .addOnSuccessListener {
+                                                    isLoading = false
+                                                    successMessage = "Password updated successfully!"
+                                                    currentPassword = ""
+                                                    newPassword = ""
+                                                    confirmPassword = ""
+                                                }
+                                                .addOnFailureListener {
+                                                    isLoading = false
+                                                    errorMessage = "Failed to update password. Please try again."
+                                                }
+                                        }
+                                    }
+                                    .addOnFailureListener {
+                                        isLoading = false
+                                        errorMessage = "Connection error. Please try again."
+                                    }
+                            }
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BrownButton)
+                    colors = ButtonDefaults.buttonColors(containerColor = BrownButton),
+                    enabled = !isLoading
                 ) {
-                    Text("Update Password", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = White)
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            color = White,
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Update Password", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = White)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
