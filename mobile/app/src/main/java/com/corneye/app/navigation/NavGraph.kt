@@ -1,6 +1,6 @@
+// Navigation Graph
+// Defines the Compose navigation graph and wires all screen routes together.
 package com.corneye.app.navigation
-
-import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -39,18 +39,77 @@ fun CornEyeNavGraph(navController: NavHostController) {
         }
 
         composable(
+            route = Screen.InvalidScan.route,
+            arguments = listOf(navArgument("reason") { type = NavType.StringType; defaultValue = "not_corn" })
+        ) { backStackEntry ->
+            val reason = backStackEntry.arguments?.getString("reason") ?: "not_corn"
+            InvalidScanScreen(navController = navController, reason = reason)
+        }
+
+        composable(
+            route = Screen.Analyzing.route,
+            arguments = listOf(
+                navArgument("diseaseName") { type = NavType.StringType },
+                navArgument("confidence") { type = NavType.FloatType },
+                navArgument("imageUri") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val diseaseName = java.net.URLDecoder.decode(
+                backStackEntry.arguments?.getString("diseaseName") ?: "", "UTF-8"
+            )
+            val confidence = backStackEntry.arguments?.getFloat("confidence") ?: 0f
+            val imageUri = backStackEntry.arguments?.getString("imageUri") ?: ""
+            AnalyzingScreen(
+                navController = navController,
+                diseaseName = diseaseName,
+                confidence = confidence,
+                imageUriEncoded = imageUri
+            )
+        }
+
+        composable(
             route = Screen.Result.route,
             arguments = listOf(
                 navArgument("diseaseName") { type = NavType.StringType },
-                navArgument("confidence") { type = NavType.FloatType }
+                navArgument("confidence") { type = NavType.FloatType },
+                navArgument("imageUri") { type = NavType.StringType }
             )
         ) { backStackEntry ->
-            val diseaseName = backStackEntry.arguments?.getString("diseaseName") ?: ""
+            val diseaseName = java.net.URLDecoder.decode(
+                backStackEntry.arguments?.getString("diseaseName") ?: "", "UTF-8"
+            )
             val confidence = backStackEntry.arguments?.getFloat("confidence") ?: 0f
+            val imageUri = backStackEntry.arguments?.getString("imageUri") ?: ""
             ResultScreen(
                 navController = navController,
                 diseaseName = diseaseName,
-                confidence = confidence
+                confidence = confidence,
+                imageUriEncoded = imageUri
+            )
+        }
+
+        composable(
+            route = Screen.FullReport.route,
+            arguments = listOf(
+                navArgument("scanId") { type = NavType.StringType },
+                navArgument("diseaseName") { type = NavType.StringType },
+                navArgument("confidence") { type = NavType.FloatType },
+                navArgument("date") { type = NavType.StringType },
+                navArgument("time") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val scanId = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("scanId") ?: "", "UTF-8")
+            val diseaseName = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("diseaseName") ?: "", "UTF-8")
+            val confidence = backStackEntry.arguments?.getFloat("confidence") ?: 0f
+            val date = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("date") ?: "", "UTF-8")
+            val time = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("time") ?: "", "UTF-8")
+            FullReportScreen(
+                navController = navController,
+                scanId = scanId,
+                diseaseName = diseaseName,
+                confidence = confidence,
+                date = date,
+                time = time
             )
         }
 
@@ -152,6 +211,42 @@ fun CornEyeNavGraph(navController: NavHostController) {
                 planPrice = planPrice,
                 paymentMethod = paymentMethod
             )
+        }
+
+        composable(Screen.ForgotPassword.route) {
+            ForgotPasswordScreen(navController = navController)
+        }
+
+        composable(
+            route = Screen.Otp.route,
+            arguments = listOf(
+                navArgument("email") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val email = java.net.URLDecoder.decode(
+                backStackEntry.arguments?.getString("email") ?: "", "UTF-8"
+            )
+            OtpScreen(navController = navController, email = email)
+        }
+
+        composable(
+            route = Screen.SetNewPassword.route,
+            arguments = listOf(
+                navArgument("email") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val email = java.net.URLDecoder.decode(
+                backStackEntry.arguments?.getString("email") ?: "", "UTF-8"
+            )
+            SetNewPasswordScreen(navController = navController, email = email)
+        }
+
+        composable(Screen.PasswordReset.route) {
+            PasswordResetScreen(navController = navController)
+        }
+
+        composable(Screen.PasswordSuccess.route) {
+            PasswordSuccessScreen(navController = navController)
         }
     }
 }
