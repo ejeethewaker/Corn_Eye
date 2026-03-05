@@ -1,48 +1,70 @@
-import React, { useState } from 'react';
+// Farmers List
+// Lists all registered farmers with search and account management options.
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { database } from './firebase';
+import { ref, get } from 'firebase/database';
 import './Users.css';
 import './Dashboard.css';
 
-const sampleUsers = [
-  {
-    id: 1,
-    name: 'Juan Dela Cruz',
-    email: 'juan@email.com',
-    status: 'Active',
-    avatar: '👨‍🌾',
-    avatarBg: '#2196f3',
-  },
-  {
-    id: 2,
-    name: 'Maria Santos',
-    email: 'maria@email.com',
-    status: 'Active',
-    avatar: '👩‍🌾',
-    avatarBg: '#4caf50',
-  },
-  {
-    id: 3,
-    name: 'Pedro Reyes',
-    email: 'pedro@email.com',
-    status: 'Inactive',
-    avatar: '👨‍🌾',
-    avatarBg: '#e91e63',
-  },
-  {
-    id: 4,
-    name: 'Ana Garcia',
-    email: 'ana@email.com',
-    status: 'Active',
-    avatar: '👩‍🌾',
-    avatarBg: '#9c27b0',
-  },
-];
+const avatarColors = ['#2196f3', '#4caf50', '#e91e63', '#9c27b0', '#ff9800', '#00bcd4', '#795548'];
 
 function Users() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [users, setUsers] = useState([]);
+  const [adminName, setAdminName] = useState('');
+  const [adminInitials, setAdminInitials] = useState('');
 
-  const filteredUsers = sampleUsers.filter(
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Load admin profile for sidebar
+        const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+        const adminsRef = ref(database, 'admins');
+        const adminsSnap = await get(adminsRef);
+        if (adminsSnap.exists()) {
+          const admins = adminsSnap.val();
+          const matched = Object.values(admins).find((a) => a.email === storedEmail);
+          if (matched) {
+            const name = matched.fullName || 'Admin';
+            setAdminName(name);
+            setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
+          }
+        }
+
+        // Load farmers list
+        const farmersRef = ref(database, 'farmers');
+        const snapshot = await get(farmersRef);
+        if (snapshot.exists()) {
+          const farmersData = snapshot.val();
+          const farmersList = Object.keys(farmersData).map((key, index) => {
+            const farmer = farmersData[key];
+            const name = farmer.fullname || 'Unknown';
+            const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+            const rawStatus = farmer.status || 'active';
+            const status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
+            const rawPhoto = farmer.profile_photo_url || null;
+            return {
+              id: key,
+              name: name,
+              email: farmer.email_address || '',
+              status: status,
+              avatar: initials,
+              avatarBg: avatarColors[index % avatarColors.length],
+              photoUrl: rawPhoto ? `data:image/jpeg;base64,${rawPhoto}` : null,
+            };
+          });
+          setUsers(farmersList);
+        }
+      } catch (err) {
+        console.error('Failed to load users:', err);
+      }
+    };
+    loadData();
+  }, []);
+
+  const filteredUsers = users.filter(
     (user) =>
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -70,9 +92,9 @@ function Users() {
           </div>
 
           <div className="sidebar-user-card sidebar-user-clickable" onClick={() => navigate('/profile')}>
-            <div className="user-avatar">AD</div>
+            <div className="user-avatar">{adminInitials || '?'}</div>
             <div className="user-info">
-              <span className="user-name">Admin User</span>
+              <span className="user-name">{adminName || 'Admin'}</span>
               <span className="user-role">Administrator</span>
             </div>
           </div>
@@ -159,9 +181,11 @@ function Users() {
               <div className="um-col-name">
                 <div
                   className="um-user-avatar"
-                  style={{ backgroundColor: user.avatarBg }}
+                  style={{ backgroundColor: user.photoUrl ? 'transparent' : user.avatarBg, overflow: 'hidden', padding: 0 }}
                 >
-                  {user.avatar}
+                  {user.photoUrl
+                    ? <img src={user.photoUrl} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                    : user.avatar}
                 </div>
                 <span className="um-user-name">{user.name}</span>
               </div>
