@@ -1,3 +1,5 @@
+// Notifications Screen
+// Lists admin-sent notifications and updates received by the farmer.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -17,11 +19,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.google.firebase.database.ServerValue
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
@@ -32,7 +38,12 @@ data class NotificationItem(
     val description: String,
     val actionLabel: String,
     val type: NotificationType,
-    val isRead: Boolean = false
+    val isRead: Boolean = false,
+    val analysisId: String = "",
+    val analysisLabel: String = "",
+    val confidenceScore: Float = 0f,
+    val date: String = "",
+    val time: String = ""
 )
 
 enum class NotificationType {
@@ -41,48 +52,51 @@ enum class NotificationType {
 
 @Composable
 fun NotificationsScreen(navController: NavController) {
+    val context = LocalContext.current
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
     var selectedTab by remember { mutableIntStateOf(3) }
     var selectedFilter by remember { mutableIntStateOf(0) } // 0=All, 1=Unread
 
-    val notifications = remember {
-        listOf(
-            NotificationItem(
-                id = "1",
-                title = "Scan Complete",
-                timeAgo = "2 hours ago",
-                description = "Your corn leaf scan has been successfully analyzed.",
-                actionLabel = "View Results →",
-                type = NotificationType.SCAN_COMPLETE,
-                isRead = false
-            ),
-            NotificationItem(
-                id = "2",
-                title = "Disease Detected",
-                timeAgo = "5 hours ago",
-                description = "Gray Leaf Spot detected. Check the result.",
-                actionLabel = "View Details →",
-                type = NotificationType.DISEASE_DETECTED,
-                isRead = false
-            ),
-            NotificationItem(
-                id = "3",
-                title = "Scan Complete",
-                timeAgo = "1 day ago",
-                description = "Your corn leaf scan has been successfully analyzed.",
-                actionLabel = "View Results →",
-                type = NotificationType.SCAN_COMPLETE,
-                isRead = true
-            ),
-            NotificationItem(
-                id = "4",
-                title = "Disease Detected",
-                timeAgo = "2 days ago",
-                description = "Common Rust detected. Check the result.",
-                actionLabel = "View Details →",
-                type = NotificationType.DISEASE_DETECTED,
-                isRead = true
-            ),
-        )
+    var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    // Load notifications from Firebase
+    LaunchedEffect(userId) {
+        if (userId.isNotEmpty()) {
+            FirebaseHelper.notificationsRef().get()
+                .addOnSuccessListener { snapshot ->
+                    val items = mutableListOf<NotificationItem>()
+                    val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+                    val timeFormat = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                    snapshot.children.forEach { child ->
+                        val notifUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                        if (notifUserId == userId) {
+                            val typeStr = child.child("notif_type").getValue(String::class.java) ?: "scan_healthy"
+                            val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
+                            val dateObj = if (timeScanned > 0) java.util.Date(timeScanned) else java.util.Date()
+                            items.add(
+                                NotificationItem(
+                                    id = child.key ?: "",
+                                    title = child.child("notif_title").getValue(String::class.java) ?: "",
+                                    timeAgo = if (timeScanned > 0) getTimeAgo(timeScanned) else "",
+                                    description = child.child("notif_message").getValue(String::class.java) ?: "",
+                                    actionLabel = if (typeStr == "scan_disease") "View Details →" else "View Results →",
+                                    type = if (typeStr == "scan_disease") NotificationType.DISEASE_DETECTED else NotificationType.SCAN_COMPLETE,
+                                    isRead = child.child("is_read").getValue(Boolean::class.java) ?: false,
+                                    analysisId = child.child("analysis_id").getValue(String::class.java) ?: "",
+                                    analysisLabel = child.child("analysis_label").getValue(String::class.java) ?: "",
+                                    confidenceScore = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
+                                    date = dateFormat.format(dateObj),
+                                    time = timeFormat.format(dateObj)
+                                )
+                            )
+                        }
+                    }
+                    notifications = items.sortedByDescending { it.id }
+                    isLoading = false
+                }
+                .addOnFailureListener { isLoading = false }
+        }
     }
 
     val filteredNotifications = when (selectedFilter) {
@@ -104,7 +118,7 @@ fun NotificationsScreen(navController: NavController) {
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> { /* Already here */ }
                         4 -> navController.navigate(Screen.Settings.route)
@@ -123,6 +137,7 @@ fun NotificationsScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -219,7 +234,7 @@ fun NotificationsScreen(navController: NavController) {
                     }
 
                     items(filteredNotifications) { notification ->
-                        NotificationCard(notification = notification)
+                        NotificationCard(notification = notification, navController = navController)
                         Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
@@ -252,7 +267,7 @@ private fun NotificationFilterChip(
 }
 
 @Composable
-fun NotificationCard(notification: NotificationItem) {
+fun NotificationCard(notification: NotificationItem, navController: NavController? = null) {
     val iconTint: Color
     val iconBg: Color
     val icon: ImageVector
@@ -278,7 +293,9 @@ fun NotificationCard(notification: NotificationItem) {
             .fillMaxWidth()
             .border(1.dp, DividerColor, RoundedCornerShape(14.dp)),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = White),
+        colors = CardDefaults.cardColors(
+            containerColor = if (notification.isRead) White else GoldenBackground.copy(alpha = 0.18f)
+        ),
         elevation = CardDefaults.cardElevation(1.dp)
     ) {
         Row(
@@ -317,6 +334,26 @@ fun NotificationCard(notification: NotificationItem) {
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
+                    // Read / Unread badge
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                if (notification.isRead)
+                                    Color(0xFFE0E0E0)
+                                else
+                                    StatusWarning
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = if (notification.isRead) "Read" else "New",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (notification.isRead) Color(0xFF757575) else White,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
                 }
                 Text(
                     text = notification.timeAgo,
@@ -338,7 +375,26 @@ fun NotificationCard(notification: NotificationItem) {
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(actionColor)
-                        .clickable { /* Handle action */ }
+                        .clickable {
+                            // Mark as read in Firebase
+                            if (notification.id.isNotEmpty()) {
+                                FirebaseHelper.notificationsRef()
+                                    .child(notification.id)
+                                    .child("is_read")
+                                    .setValue(true)
+                            }
+                            if (notification.analysisLabel.isNotEmpty() && navController != null) {
+                                navController.navigate(
+                                    Screen.FullReport.createRoute(
+                                        scanId = notification.analysisId,
+                                        diseaseName = notification.analysisLabel,
+                                        confidence = notification.confidenceScore,
+                                        date = notification.date,
+                                        time = notification.time
+                                    )
+                                )
+                            }
+                        }
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Text(
@@ -350,5 +406,21 @@ fun NotificationCard(notification: NotificationItem) {
                 }
             }
         }
+    }
+}
+
+private fun getTimeAgo(timestamp: Long): String {
+    if (timestamp <= 0) return ""
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val minutes = diff / (1000 * 60)
+    val hours = diff / (1000 * 60 * 60)
+    val days = diff / (1000 * 60 * 60 * 24)
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes minutes ago"
+        hours < 24 -> "$hours hours ago"
+        days < 7 -> "$days days ago"
+        else -> "${days / 7} weeks ago"
     }
 }
