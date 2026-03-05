@@ -1,3 +1,5 @@
+// Home Screen
+// Main farmer dashboard with quick-scan button and recent scan summary.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -18,22 +20,110 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
+import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import android.util.Base64
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class RecentScan(
+    val id: String,
+    val diseaseName: String,
+    val confidence: Float,
+    val timestamp: Long,
+    val isHealthy: Boolean
+)
 
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
     val fullname by UserPreferences.getFullname(context).collectAsState(initial = "Farmer")
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
     val firstName = fullname.split(" ").firstOrNull() ?: "Farmer"
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    var totalScans by remember { mutableIntStateOf(0) }
+    var diseasedCount by remember { mutableIntStateOf(0) }
+    var healthyCount by remember { mutableIntStateOf(0) }
+    var recentScans by remember { mutableStateOf<List<RecentScan>>(emptyList()) }
+    var photoUrl by remember { mutableStateOf("") }
+    var selectedHistoryFilter by remember { mutableIntStateOf(0) }
+
+    // Real-time listener so photo updates immediately after upload
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                photoUrl = snapshot.getValue(String::class.java) ?: ""
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        val ref = FirebaseHelper.farmersRef().child(userId).child("profile_photo_url")
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
+    }
+
+    // Real-time listener for scan history and stats
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val allScans = mutableListOf<RecentScan>()
+                var total = 0
+                var diseased = 0
+                var healthy = 0
+                snapshot.children.forEach { child ->
+                    val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                    if (scanUserId == userId) {
+                        total++
+                        val label = child.child("analysis_label").getValue(String::class.java) ?: "Unknown"
+                        val isHealthyScan = label.equals("Healthy", ignoreCase = true)
+                        if (isHealthyScan) healthy++ else diseased++
+                        allScans.add(
+                            RecentScan(
+                                id = child.key ?: "",
+                                diseaseName = label,
+                                confidence = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
+                                timestamp = child.child("time_scanned").getValue(Long::class.java) ?: 0L,
+                                isHealthy = isHealthyScan
+                            )
+                        )
+                    }
+                }
+                totalScans = total
+                diseasedCount = diseased
+                healthyCount = healthy
+                recentScans = allScans.sortedByDescending { it.timestamp }
+            }
+            override fun onCancelled(error: DatabaseError) {
+                android.util.Log.e("HomeScreen", "Firebase scan history error: ${error.message} (code: ${error.code})")
+            }
+        }
+        val ref = FirebaseHelper.analysisResultsRef()
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
+    }
+
+    val photoBytes = remember(photoUrl) {
+        if (photoUrl.isNotEmpty()) {
+            try { Base64.decode(photoUrl, Base64.DEFAULT) }
+            catch (e: Exception) { null }
+        } else null
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -44,7 +134,7 @@ fun HomeScreen(navController: NavController) {
                     selectedTab = index
                     when (index) {
                         0 -> { /* Already on Home */ }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -58,12 +148,12 @@ fun HomeScreen(navController: NavController) {
                 .fillMaxSize()
                 .background(Background)
                 .padding(bottom = paddingValues.calculateBottomPadding())
-                .verticalScroll(rememberScrollState())
         ) {
-            // Status bar background - darker golden
+            // Status bar background - pinned outside scroll
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -87,12 +177,21 @@ fun HomeScreen(navController: NavController) {
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = firstName.take(1).uppercase(),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = White
-                        )
+                        if (photoBytes != null) {
+                            AsyncImage(
+                                model = photoBytes,
+                                contentDescription = "Profile photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = firstName.take(1).uppercase(),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = White
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
@@ -117,8 +216,9 @@ fun HomeScreen(navController: NavController) {
             // Content area with light background
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .background(Background)
+                    .verticalScroll(rememberScrollState())
             ) {
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -142,21 +242,21 @@ fun HomeScreen(navController: NavController) {
             ) {
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    value = "0",
+                    value = "$totalScans",
                     label = "Total Scans",
                     borderColor = Color(0xFF2196F3),
                     valueColor = Color(0xFF2196F3)
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    value = "0",
+                    value = "$diseasedCount",
                     label = "Diseased",
                     borderColor = StatusError,
                     valueColor = StatusError
                 )
                 StatCard(
                     modifier = Modifier.weight(1f),
-                    value = "0",
+                    value = "$healthyCount",
                     label = "Healthy",
                     borderColor = GreenPrimary,
                     valueColor = GreenPrimary
@@ -205,7 +305,7 @@ fun HomeScreen(navController: NavController) {
                             color = White
                         )
                         Text(
-                            text = "Detect diseases instantly with AI",
+                            text = "Detect diseases instantly",
                             fontSize = 13.sp,
                             color = White.copy(alpha = 0.85f)
                         )
@@ -277,52 +377,108 @@ fun HomeScreen(navController: NavController) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Recent History section
-            Text(
-                text = "Recent History",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = GreenPrimary,
-                modifier = Modifier.padding(horizontal = 20.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Empty state card
-            Card(
+            // Scan History section header
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Background),
-                elevation = CardDefaults.cardElevation(1.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
+                Text(
+                    text = "Scan History",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "See All",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = GreenPrimary,
+                    modifier = Modifier.clickable { navController.navigate(Screen.History.route) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Filter chips
+            val allCount = recentScans.size
+            val histHealthyCount = recentScans.count { it.isHealthy }
+            val histDiseasedCount = recentScans.count { !it.isHealthy }
+            val filteredScans = when (selectedHistoryFilter) {
+                1 -> recentScans.filter { it.isHealthy }
+                2 -> recentScans.filter { !it.isHealthy }
+                else -> recentScans
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HistoryFilterChip("All ($allCount)", selectedHistoryFilter == 0) { selectedHistoryFilter = 0 }
+                HistoryFilterChip("Healthy ($histHealthyCount)", selectedHistoryFilter == 1) { selectedHistoryFilter = 1 }
+                HistoryFilterChip("Diseased ($histDiseasedCount)", selectedHistoryFilter == 2) { selectedHistoryFilter = 2 }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (filteredScans.isEmpty()) {
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 40.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .padding(horizontal = 20.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Background),
+                    elevation = CardDefaults.cardElevation(1.dp)
                 ) {
-                    Icon(
-                        Icons.Outlined.CameraAlt,
-                        contentDescription = null,
-                        tint = TextHint,
-                        modifier = Modifier.size(56.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Outlined.CameraAlt,
+                            contentDescription = null,
+                            tint = TextHint,
+                            modifier = Modifier.size(56.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "No Scans Yet",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Start scanning to track your plant's health",
+                            fontSize = 13.sp,
+                            color = TextHint,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+                filteredScans.forEach { scan ->
+                    val date = if (scan.timestamp > 0) Date(scan.timestamp) else Date()
+                    val histItem = ScanHistoryItem(
+                        id = scan.id,
+                        sampleName = "Corn Leaf Sample",
+                        diseaseName = scan.diseaseName,
+                        confidence = scan.confidence,
+                        date = dateFormat.format(date),
+                        time = timeFormat.format(date),
+                        isHealthy = scan.isHealthy
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "No Scans Yet",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Start Scanning to track your plants health",
-                        fontSize = 13.sp,
-                        color = TextHint,
-                        textAlign = TextAlign.Center
-                    )
+                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                        HistoryCard(item = histItem, navController = navController)
+                    }
                 }
             }
 
@@ -391,7 +547,7 @@ fun BottomNavBar(
         ) {
             val items = listOf(
                 Triple(Icons.Filled.Home, "Home", 0),
-                Triple(Icons.Filled.History, "History", 1),
+                Triple(Icons.Filled.Person, "Profile", 1),
                 Triple(Icons.Filled.QrCodeScanner, "Scan", 2),
                 Triple(Icons.Filled.Notifications, "Notification", 3),
                 Triple(Icons.Filled.Settings, "Settings", 4)
