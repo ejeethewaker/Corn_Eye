@@ -1,3 +1,5 @@
+// Subscription Plans Screen
+// Displays available subscription tiers for farmers to choose from.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -21,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
@@ -37,32 +40,60 @@ data class SubscriptionPlan(
 @Composable
 fun SubscriptionScreen(navController: NavController) {
     var selectedTab by remember { mutableIntStateOf(4) }
-    var selectedPlanIndex by remember { mutableIntStateOf(1) } // Basic Plan selected by default
+    var selectedPlanIndex by remember { mutableIntStateOf(1) }
+    var plans by remember { mutableStateOf<List<SubscriptionPlan>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    val plans = listOf(
-        SubscriptionPlan(
-            name = "Free Plan",
-            emoji = "\uD83D\uDCE6",
-            price = 0,
-            features = listOf("10 scans per month", "Basic detection only", "Community support")
-        ),
-        SubscriptionPlan(
-            name = "Basic Plan",
-            emoji = "⭐",
-            price = 99,
-            features = listOf("100 scans per month", "Standard AI detection", "Email support"),
-            badge = "SELECTED",
-            badgeColor = GreenPrimary
-        ),
-        SubscriptionPlan(
-            name = "Premium Plan",
-            emoji = "\uD83D\uDC51",
-            price = 199,
-            features = listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features"),
-            badge = "BEST",
-            badgeColor = StatusError
-        )
-    )
+    // Load subscription plans from Firebase
+    LaunchedEffect(Unit) {
+        FirebaseHelper.subscriptionPlansRef().get()
+            .addOnSuccessListener { snapshot ->
+                if (snapshot.exists()) {
+                    val loadedPlans = mutableListOf<SubscriptionPlan>()
+                    for (child in snapshot.children) {
+                        val name = child.child("plan_name").getValue(String::class.java) ?: ""
+                        val emoji = child.child("emoji").getValue(String::class.java) ?: ""
+                        val price = child.child("plan_price").getValue(Long::class.java)?.toInt() ?: 0
+                        val featuresSnapshot = child.child("features")
+                        val features = mutableListOf<String>()
+                        for (f in featuresSnapshot.children) {
+                            f.getValue(String::class.java)?.let { features.add(it) }
+                        }
+                        val badge = child.child("badge").getValue(String::class.java)
+                        val badgeColorStr = child.child("badgeColor").getValue(String::class.java) ?: ""
+                        val badgeColor = when (badgeColorStr) {
+                            "green" -> GreenPrimary
+                            "red" -> StatusError
+                            else -> GreenPrimary
+                        }
+                        loadedPlans.add(SubscriptionPlan(name, emoji, price, features, badge, badgeColor))
+                    }
+                    if (loadedPlans.isNotEmpty()) {
+                        plans = loadedPlans
+                        // Select the second plan by default if available
+                        selectedPlanIndex = if (loadedPlans.size > 1) 1 else 0
+                    }
+                }
+                // If no plans from Firebase, fall back to defaults
+                if (plans.isEmpty()) {
+                    plans = listOf(
+                        SubscriptionPlan("Free Plan", "\uD83D\uDCE6", 0, listOf("10 scans per month", "Basic detection only", "Community support")),
+                        SubscriptionPlan("Basic Plan", "⭐", 99, listOf("100 scans per month", "Standard AI detection", "Email support"), "SELECTED", GreenPrimary),
+                        SubscriptionPlan("Premium Plan", "\uD83D\uDC51", 199, listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features"), "BEST", StatusError)
+                    )
+                }
+                isLoading = false
+            }
+            .addOnFailureListener {
+                // Fall back to defaults on error
+                plans = listOf(
+                    SubscriptionPlan("Free Plan", "\uD83D\uDCE6", 0, listOf("10 scans per month", "Basic detection only", "Community support")),
+                    SubscriptionPlan("Basic Plan", "⭐", 99, listOf("100 scans per month", "Standard AI detection", "Email support"), "SELECTED", GreenPrimary),
+                    SubscriptionPlan("Premium Plan", "\uD83D\uDC51", 199, listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features"), "BEST", StatusError)
+                )
+                isLoading = false
+            }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -75,7 +106,7 @@ fun SubscriptionScreen(navController: NavController) {
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -94,6 +125,7 @@ fun SubscriptionScreen(navController: NavController) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
@@ -159,15 +191,16 @@ fun SubscriptionScreen(navController: NavController) {
                 Spacer(modifier = Modifier.height(24.dp))
 
                 // Subscribe button
-                Button(
-                    onClick = {
-                        navController.navigate(
-                            Screen.Payment.createRoute(
-                                planName = plans[selectedPlanIndex].name,
-                                planPrice = plans[selectedPlanIndex].price
+                if (plans.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            navController.navigate(
+                                Screen.Payment.createRoute(
+                                    planName = plans[selectedPlanIndex].name,
+                                    planPrice = plans[selectedPlanIndex].price
+                                )
                             )
-                        )
-                    },
+                        },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
@@ -180,6 +213,7 @@ fun SubscriptionScreen(navController: NavController) {
                         fontWeight = FontWeight.Bold,
                         color = White
                     )
+                }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
