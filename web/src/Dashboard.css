@@ -1,6 +1,7 @@
 .dashboard-container {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background-color: #f0f0f0;
 }
 
@@ -8,16 +9,25 @@
 .dashboard-sidebar {
   width: 340px;
   min-width: 340px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  overflow: hidden;
   background-color: #f5b731;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   padding: 32px 24px;
+  box-sizing: border-box;
 }
 
 .sidebar-top {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-brand {
@@ -93,13 +103,18 @@
   font-weight: 600;
   color: #1a1a1a;
   cursor: pointer;
-  transition: background-color 0.2s, border-color 0.2s;
+  transition: background-color 0.25s ease, border-color 0.25s ease,
+              box-shadow 0.25s ease;
   text-align: left;
   width: 100%;
 }
 
 .nav-item:hover {
   background-color: rgba(0, 0, 0, 0.06);
+}
+
+.nav-item:active {
+  background-color: rgba(0, 0, 0, 0.12);
 }
 
 .nav-item.active {
@@ -123,6 +138,7 @@
 
 /* ── Logout ── */
 .sidebar-bottom {
+  flex-shrink: 0;
   padding-top: 16px;
 }
 
@@ -138,7 +154,10 @@
 /* ── Main Content ── */
 .dashboard-main {
   flex: 1;
-  padding: 40px 48px;
+  padding: 40px 48px 60px;
+  overflow-y: auto;
+  min-height: 0;
+  box-sizing: border-box;
 }
 
 .dashboard-title {
@@ -174,6 +193,10 @@
   background-color: #fce4ec;
 }
 
+.stat-teal {
+  background-color: #e0f2f1;
+}
+
 .stat-number {
   font-size: 56px;
   font-weight: 700;
@@ -192,6 +215,10 @@
   color: #e53935;
 }
 
+.stat-number.teal {
+  color: #00695c;
+}
+
 .stat-label {
   font-size: 20px;
   color: #555;
@@ -205,6 +232,14 @@
 
 .stat-change.green {
   color: #2e7d32;
+}
+
+.stat-change.red {
+  color: #c62828;
+}
+
+.stat-change.orange {
+  color: #e65100;
 }
 
 /* ── Responsive ── */
