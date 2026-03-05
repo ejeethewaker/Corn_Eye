@@ -1,3 +1,5 @@
+// Firebase Config
+// Initializes the Firebase app and exports the Realtime Database instance.
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 
