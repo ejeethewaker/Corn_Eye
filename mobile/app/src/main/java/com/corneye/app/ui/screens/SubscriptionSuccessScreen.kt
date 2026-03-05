@@ -1,3 +1,5 @@
+// Subscription Success Screen
+// Confirmation screen shown after a subscription is successfully activated.
 package com.corneye.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -19,7 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavController
+import com.corneye.app.data.FirebaseHelper
+import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 import java.text.SimpleDateFormat
@@ -32,6 +37,7 @@ fun SubscriptionSuccessScreen(
     planPrice: Int,
     paymentMethod: String
 ) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(4) }
 
     // Calculate renewal date (1 month from now)
@@ -42,6 +48,39 @@ fun SubscriptionSuccessScreen(
 
     // Generate a transaction ID
     val transactionId = remember { "#TXN-${(10000000..99999999).random()}" }
+
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
+
+    // Save subscription to farmer's record in Firebase
+    LaunchedEffect(userId) {
+        if (userId.isNotEmpty()) {
+            val subscriptionData = mapOf(
+                "active_plan" to planName,
+                "plan_price" to planPrice,
+                "payment_method" to paymentMethod,
+                "subscription_start" to System.currentTimeMillis(),
+                "renewal_date" to calendar.timeInMillis,
+                "renewal_date_text" to renewalDate,
+                "transaction_id" to transactionId,
+                "subscription_status" to "active"
+            )
+            FirebaseHelper.farmersRef().child(userId).child("subscription").setValue(subscriptionData)
+
+            // Create subscription notification
+            val notifId = FirebaseHelper.notificationsRef().push().key ?: ""
+            if (notifId.isNotEmpty()) {
+                val notifData = mapOf(
+                    "notif_id" to notifId,
+                    "farmer_id" to userId,
+                    "notif_title" to "Subscription Activated",
+                    "notif_message" to "Your $planName subscription is now active. Renewal date: $renewalDate.",
+                    "notif_type" to "subscription",
+                    "is_read" to false
+                )
+                FirebaseHelper.notificationsRef().child(notifId).setValue(notifData)
+            }
+        }
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -54,7 +93,7 @@ fun SubscriptionSuccessScreen(
                         0 -> navController.navigate(Screen.Home.route) {
                             popUpTo(Screen.Home.route) { inclusive = true }
                         }
-                        1 -> navController.navigate(Screen.History.route)
+                        1 -> navController.navigate(Screen.Profile.route)
                         2 -> navController.navigate(Screen.Scan.route)
                         3 -> navController.navigate(Screen.Notifications.route)
                         4 -> navController.navigate(Screen.Settings.route)
@@ -73,6 +112,7 @@ fun SubscriptionSuccessScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(GoldenBackground)
                     .background(StatusBarGold)
                     .windowInsetsPadding(WindowInsets.statusBars)
             )
