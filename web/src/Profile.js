@@ -14,8 +14,7 @@ function Profile() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [location, setLocation] = useState('');
-  const [farmSize, setFarmSize] = useState('');
+  const [bio, setBio] = useState('');
   const [profilePhoto, setProfilePhoto] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: '' });
@@ -45,8 +44,7 @@ function Profile() {
             setFullName(data.fullName || '');
             setEmail(data.email || '');
             setPhone(data.phone || '');
-            setLocation(data.location || '');
-            setFarmSize(data.farmSize || '');
+            setBio(data.bio || '');
             setProfilePhoto(data.profilePhoto || '');
           }
         }
@@ -107,8 +105,7 @@ function Profile() {
           fullName,
           email,
           phone,
-          location,
-          farmSize,
+          bio,
         });
         showToast('Profile updated successfully!', 'success');
         setIsEditing(false);
@@ -275,30 +272,21 @@ function Profile() {
                 <input
                   type="tel"
                   className="profile-input"
+                  placeholder="+63 912 345 6789"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                 />
               </div>
 
-              {/* Location */}
+              {/* Bio */}
               <div className="profile-field">
-                <label className="profile-label">Location</label>
-                <input
-                  type="text"
-                  className="profile-input"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                />
-              </div>
-
-              {/* Farm Size */}
-              <div className="profile-field">
-                <label className="profile-label">Farm Size</label>
-                <input
-                  type="text"
-                  className="profile-input"
-                  value={farmSize}
-                  onChange={(e) => setFarmSize(e.target.value)}
+                <label className="profile-label">Bio</label>
+                <textarea
+                  className="profile-input profile-textarea"
+                  placeholder={`System administrator for CornEye platform\nManaging corn disease detection for Filipino farmers`}
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  rows={3}
                 />
               </div>
 
