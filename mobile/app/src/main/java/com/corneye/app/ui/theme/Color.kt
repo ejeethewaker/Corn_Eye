@@ -2,6 +2,8 @@
 // Custom color palette definitions used throughout the app's Material3 theme.
 package com.corneye.app.ui.theme
 
+import androidx.compose.ui.graphics.Color
+
 // Greens
 val GreenPrimary = Color(0xFF2E7D32)
 val GreenDark = Color(0xFF1B5E20)

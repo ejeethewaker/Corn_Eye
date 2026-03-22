@@ -86,9 +86,17 @@ dependencies {
     implementation("androidx.camera:camera-view:1.4.1")
 
     // TensorFlow Lite
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")
+    // Exclude tensorflow-lite-api from all three deps — 2.17.0 pulls in
+    // litert-api:1.0.1 which ships the same classes, causing duplicate-class errors.
+    implementation("org.tensorflow:tensorflow-lite:2.17.0") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.17.0") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
 
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))

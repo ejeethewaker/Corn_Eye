@@ -1,6 +1,7 @@
 // Navigation Graph
 // Defines the Compose navigation graph and wires all screen routes together.
 package com.corneye.app.navigation
+import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost

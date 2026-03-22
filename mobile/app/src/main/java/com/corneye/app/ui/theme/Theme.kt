@@ -1,6 +1,7 @@
 // App Theme
 // Applies the CornEye Material3 color scheme and system bar styling.
 package com.corneye.app.ui.theme
+import android.app.Activity
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

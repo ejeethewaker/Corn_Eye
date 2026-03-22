@@ -1,6 +1,7 @@
 // CornEye Application
 // Custom Application class for app-wide Firebase and SDK initialization.
 package com.corneye.app
+import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import okhttp3.OkHttpClient

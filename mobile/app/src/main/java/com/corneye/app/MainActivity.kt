@@ -1,6 +1,7 @@
 // Main Activity
 // Entry point of the Android app; sets up Jetpack Compose and the navigation host.
 package com.corneye.app
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge

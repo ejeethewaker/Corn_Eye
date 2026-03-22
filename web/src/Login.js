@@ -98,8 +98,9 @@ function Login() {
           <form onSubmit={handleSubmit}>
             {error && <p className="login-error">{error}</p>}
             <div className="form-group">
-              <label className="form-label">Email Address</label>
+              <label className="form-label" htmlFor="login-email">Email Address</label>
               <input
+                id="login-email"
                 type="email"
                 className="form-input"
                 placeholder="admin@corneye.com"
@@ -110,9 +111,10 @@ function Login() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Password</label>
+              <label className="form-label" htmlFor="login-password">Password</label>
               <div className="password-wrapper">
                 <input
+                  id="login-password"
                   type={showPassword ? 'text' : 'password'}
                   className="form-input"
                   placeholder="••••••••"
@@ -150,8 +152,7 @@ function Login() {
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="checkbox-input"
                 />
-                <span className="checkbox-custom"></span>
-                Remember me
+                <span className="checkbox-custom"></span><span> Remember me</span>
               </label>
             </div>
 
