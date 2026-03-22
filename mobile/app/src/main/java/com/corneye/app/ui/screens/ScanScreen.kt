@@ -674,6 +674,36 @@ private fun performAnalysis(
     onComplete: () -> Unit
 ) {
     Thread {
+        val uriString = imageFile?.toURI()?.toString() ?: imageUri?.toString() ?: ""
+
+        // ── Stage 1: Leaf detection ───────────────────────────────────────
+        // Validate that the image actually contains a corn leaf before
+        // running the more expensive disease classifier.
+        val leafDetector = CornLeafDetector(context)
+        val leafModelLoaded = leafDetector.initialize()
+
+        val isCorn: Boolean = when {
+            !leafModelLoaded  -> true   // model missing → assume corn to avoid false rejections
+            imageFile != null -> leafDetector.isCornLeafFromFile(imageFile)
+            imageUri  != null -> leafDetector.isCornLeafFromUri(imageUri)
+            else              -> false
+        }
+        leafDetector.close()
+
+        if (!isCorn) {
+            // Not a corn leaf — skip disease classification entirely
+            android.util.Log.d("ScanScreen", "Leaf detector: NOT a corn leaf → InvalidScan")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                onComplete()
+                navController.navigate(Screen.InvalidScan.createRoute("not_corn")) {
+                    popUpTo(Screen.Scan.route)
+                }
+            }
+            return@Thread
+        }
+
+        // ── Stage 2: Disease classification ──────────────────────────────
+        // Image is confirmed as a corn leaf — classify which disease it has.
         val classifier = CornDiseaseClassifier(context)
         val modelLoaded = classifier.initialize()
 
@@ -687,7 +717,6 @@ private fun performAnalysis(
 
         val label      = tfliteResult?.label      ?: "Analysis Unavailable"
         val confidence = tfliteResult?.confidence ?: 0f
-        val uriString  = imageFile?.toURI()?.toString() ?: imageUri?.toString() ?: ""
 
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             onComplete()

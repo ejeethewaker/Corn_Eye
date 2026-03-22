@@ -1,6 +1,7 @@
 // Firebase Helper
 // Centralized access to Firebase Realtime Database node references.
 package com.corneye.app.data
+import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ktx.database
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage

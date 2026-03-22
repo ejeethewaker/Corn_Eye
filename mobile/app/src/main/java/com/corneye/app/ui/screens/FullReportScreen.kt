@@ -2,6 +2,7 @@
 // Detailed disease report with symptoms, causes, and treatment recommendations.
 package com.corneye.app.ui.screens
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,10 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 
@@ -37,6 +41,25 @@ fun FullReportScreen(
     val badgeColor = if (isHealthy) StatusActive else StatusError
     val confidencePercent = (confidence * 100).toInt()
     val diseaseData = remember(diseaseName) { getFullReportDiseaseData(diseaseName) }
+
+    // Load scanned image from Firebase using scanId
+    var scanImageBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(scanId) {
+        if (scanId.isNotEmpty()) {
+            FirebaseHelper.analysisResultsRef().child(scanId).child("image_url")
+                .get().addOnSuccessListener { snapshot ->
+                    val base64 = snapshot.getValue(String::class.java)
+                    if (!base64.isNullOrEmpty()) {
+                        try {
+                            val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                            scanImageBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        } catch (e: Exception) {
+                            android.util.Log.e("FullReportScreen", "Failed to decode image: ${e.message}")
+                        }
+                    }
+                }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -90,7 +113,20 @@ fun FullReportScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        // Scanned leaf image
+        scanImageBitmap?.let { bitmap ->
+            androidx.compose.foundation.Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Scanned corn leaf",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(14.dp)),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // Sample info card
         Card(

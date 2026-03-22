@@ -1,4 +1,4 @@
-Northern Leaf Blight
 Common Rust
 Gray Leaf Spot
 Healthy
+Northern Leaf Blight

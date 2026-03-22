@@ -6,17 +6,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.common.FileUtil
-import org.tensorflow.lite.support.image.ImageProcessor
-import org.tensorflow.lite.support.image.TensorImage
-import org.tensorflow.lite.support.common.ops.NormalizeOp
-import org.tensorflow.lite.support.image.ops.ResizeOp
-import org.tensorflow.lite.support.tensorbuffer.TensorBuffer
 import java.io.FileInputStream
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
@@ -43,10 +39,8 @@ class CornDiseaseClassifier(private val context: Context) {
     companion object {
         private const val MODEL_FILE = "corn_disease_model.tflite"
         private const val LABELS_FILE = "labels.txt"
-        private const val INPUT_SIZE = 224          // pixels (width & height)
-        // MobileNetV2 preprocess_input: (pixel - 127.5) / 127.5  →  [-1.0, 1.0]
-        private const val NORMALIZE_MEAN = 127.5f
-        private const val NORMALIZE_STD  = 127.5f
+        private const val INPUT_SIZE = 224  // pixels (width & height)
+        private const val TAG = "CornClassifier"
     }
 
     data class Result(val label: String, val confidence: Float)
@@ -73,12 +67,14 @@ class CornDiseaseClassifier(private val context: Context) {
             interpreter = Interpreter(modelBuffer, options)
             labels = FileUtil.loadLabels(context, LABELS_FILE)
             isReady = labels.isNotEmpty()
+            android.util.Log.d(TAG, "Initialized OK — labels: $labels")
             isReady
         } catch (e: IOException) {
-            // Model or labels file not found in assets
+            android.util.Log.e(TAG, "Init IO error: ${e.message}", e)
             isReady = false
             false
         } catch (e: Exception) {
+            android.util.Log.e(TAG, "Init error: ${e.message}", e)
             isReady = false
             false
         }
@@ -97,154 +93,129 @@ class CornDiseaseClassifier(private val context: Context) {
     // -----------------------------------------------------------------------
 
     /**
-     * Returns true if the bitmap looks like a plant/leaf based on colour content.
-     * Samples a grid of pixels and checks that a sufficient fraction are
-     * "leaf-like": green or yellow-green dominant, not heavily desaturated/grey.
-     */
-    private fun isLikelyCornLeaf(bitmap: Bitmap): Boolean {
-        val sampleSize = 20
-        val scaled = Bitmap.createScaledBitmap(bitmap, sampleSize, sampleSize, true)
-        var leafPixels = 0
-        val total = sampleSize * sampleSize
-
-        for (x in 0 until sampleSize) {
-            for (y in 0 until sampleSize) {
-                val pixel = scaled.getPixel(x, y)
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-
-                // Saturation check — skip near-grey pixels
-                val maxC = maxOf(r, g, b)
-                val minC = minOf(r, g, b)
-                val saturation = if (maxC == 0) 0f else (maxC - minC).toFloat() / maxC
-
-                // Leaf-like: green or yellow-green dominant, with some colour saturation
-                val isGreenDominant = g > r && g > b
-                val isYellowDominant = r > b && g > b && r > 100 && g > 100
-                if ((isGreenDominant || isYellowDominant) && saturation > 0.12f) {
-                    leafPixels++
-                }
-            }
-        }
-        // At least 15% of sampled pixels must be leaf-like
-        return leafPixels.toFloat() / total >= 0.15f
-    }
-
-    /**
-     * Returns the fraction of sampled pixels that are "pure healthy green" —
-     * strong green channel dominance with good saturation, characteristic of
-     * healthy plant tissue. Brown soil, rust spots, and tan lesions do NOT
-     * qualify, so a high value strongly indicates a healthy-looking image.
-     */
-    private fun healthyGreenFraction(bitmap: Bitmap): Float {
-        val sampleSize = 24
-        val scaled = Bitmap.createScaledBitmap(bitmap, sampleSize, sampleSize, true)
-        var pureGreen = 0
-        val total = sampleSize * sampleSize
-
-        for (x in 0 until sampleSize) {
-            for (y in 0 until sampleSize) {
-                val pixel = scaled.getPixel(x, y)
-                val r = (pixel shr 16) and 0xFF
-                val g = (pixel shr 8) and 0xFF
-                val b = pixel and 0xFF
-
-                val maxC = maxOf(r, g, b)
-                val minC = minOf(r, g, b)
-                val saturation = if (maxC == 0) 0f else (maxC - minC).toFloat() / maxC
-
-                // Strong green dominance — characteristic of healthy plant tissue.
-                // Brown soil (r≈g or r>g), rust (r>>g), tan lesions (low saturation)
-                // and grey/white backgrounds all fail this test.
-                if (g > r + 15 && g > b + 15 && g > 60 && saturation > 0.20f) {
-                    pureGreen++
-                }
-            }
-        }
-        scaled.recycle()
-        return pureGreen.toFloat() / total
-    }
-
-    /**
-     * Classify a Bitmap.
+     * Classify a Bitmap — Stage 2 of the two-model pipeline.
+     *
+     * This method assumes the image has ALREADY been validated as a corn leaf by
+     * CornLeafDetector. It classifies which corn disease is present.
+     *
+     * Supports both model variants:
+     *   - 4-class model (labels.txt has 4 entries): probabilities used directly.
+     *   - 5-class legacy model (labels.txt includes "Other"): "Other" is excluded
+     *     and the remaining probabilities are renormalized so confidence reflects
+     *     certainty among corn diseases only (e.g. 0.50/0.70 = 71%).
+     *
+     * Returns null if the model is not ready or corn-class confidence is too low.
      * Must be called from a background thread.
      */
     fun classify(bitmap: Bitmap): Result? {
-        if (!isReady) return null
-        val interp = interpreter ?: return null
+        if (!isReady) {
+            android.util.Log.e(TAG, "classify() called but model not ready")
+            return null
+        }
+        val interp = interpreter ?: run {
+            android.util.Log.e(TAG, "Interpreter is null")
+            return null
+        }
 
-        // Reject images that don't look like plant/leaf material
-        if (!isLikelyCornLeaf(bitmap)) return null
+        // Gallery/camera photos on modern Android may be HARDWARE bitmaps.
+        // HARDWARE bitmaps cannot be read with getPixels() — must copy to ARGB_8888 first.
+        val softBitmap: Bitmap = if (bitmap.config == Bitmap.Config.HARDWARE ||
+                                     bitmap.config != Bitmap.Config.ARGB_8888) {
+            android.util.Log.d(TAG, "Converting bitmap config ${bitmap.config} → ARGB_8888")
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } else bitmap
 
-        // Always run the model — its Healthy class score is used as real confidence.
-        val imageProcessor = ImageProcessor.Builder()
-            .add(ResizeOp(INPUT_SIZE, INPUT_SIZE, ResizeOp.ResizeMethod.BILINEAR))
-            .add(NormalizeOp(NORMALIZE_MEAN, NORMALIZE_STD))
-            .build()
+        // Scale to 224×224 (matches training resize)
+        val scaled = Bitmap.createScaledBitmap(softBitmap, INPUT_SIZE, INPUT_SIZE, true)
+        // Ensure scaled result is also software-backed
+        val argbScaled: Bitmap = if (scaled.config != Bitmap.Config.ARGB_8888)
+            scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
 
-        val tensorImage = imageProcessor.process(TensorImage.fromBitmap(bitmap))
+        // Build float32 input buffer: 1×224×224×3
+        // Normalize to [0, 1] — identical to Python's: image / 255.0
+        val byteBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3)
+        byteBuffer.order(ByteOrder.nativeOrder())
+        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+        argbScaled.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+        for (pixel in pixels) {
+            byteBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)  // R
+            byteBuffer.putFloat(((pixel shr 8)  and 0xFF) / 255.0f)  // G
+            byteBuffer.putFloat((pixel          and 0xFF) / 255.0f)  // B
+        }
 
-        val outputShape = interp.getOutputTensor(0).shape()
-        val outputBuffer = TensorBuffer.createFixedSize(outputShape, DataType.FLOAT32)
+        // Run inference — use the model's actual output size, not labels.size,
+        // so this works whether the deployed model has 4 or 5 output classes.
+        val numModelOutputs = interp.getOutputTensor(0).shape()[1]
+        val outputArray = Array(1) { FloatArray(numModelOutputs) }
+        interp.run(byteBuffer, outputArray)
+        val scores = outputArray[0]
 
-        interp.run(tensorImage.buffer, outputBuffer.buffer.rewind())
+        val scoresLog = scores.mapIndexed { i, s ->
+            "${labels.getOrElse(i) { "?" }}=${"%.3f".format(s)}"
+        }.joinToString(", ")
+        android.util.Log.d(TAG, "Scores: [$scoresLog]")
 
-        val scores = outputBuffer.floatArray
         if (scores.isEmpty()) return null
-        val maxIndex = scores.indices.maxByOrNull { scores[it] } ?: return null
-        val label = if (maxIndex < labels.size) labels[maxIndex] else "Unknown"
-        val topScore = scores[maxIndex]
 
-        // Get the model's own score for "Healthy"
-        val healthyIndex = labels.indexOfFirst { it.equals("Healthy", ignoreCase = true) }
-        val modelHealthyScore = if (healthyIndex in scores.indices) scores[healthyIndex] else 0f
+        // Find the "Other" class index (present in legacy 5-class model; -1 if not found)
+        val otherIdx = labels.indexOfFirst { it.equals("Other", ignoreCase = true) }
 
-        // If the model already predicts Healthy, trust it as-is.
-        if (label.equals("Healthy", ignoreCase = true)) {
-            return Result("Healthy", topScore)
+        // Build a list of (index, score) pairs for corn-disease classes only
+        val cornScores = scores.indices
+            .filter { it != otherIdx }
+            .map { it to scores[it] }
+
+        if (cornScores.isEmpty()) return null
+
+        // Renormalize so confidence is relative to corn classes only
+        val cornSum = cornScores.sumOf { it.second.toDouble() }.toFloat()
+        val bestCorn = cornScores.maxByOrNull { it.second } ?: return null
+
+        val label = labels.getOrElse(bestCorn.first) { "Unknown" }
+        // Renormalized confidence: how sure the model is among the 4 corn diseases
+        val confidence = if (cornSum > 0f) bestCorn.second / cornSum else bestCorn.second
+
+        android.util.Log.d(TAG, "Predicted (renorm): $label @ ${"%.3f".format(confidence)} (raw=${bestCorn.second})")
+
+        // Require at least 15% renormalized confidence — the leaf detector already
+        // confirmed this is a corn leaf, so we just need a clear winner
+        if (confidence < 0.15f) {
+            android.util.Log.d(TAG, "→ renormalized confidence too low ($confidence), returning null")
+            return null
         }
 
-        // Model predicts a disease — run colour sanity check.
-        val greenFraction = healthyGreenFraction(bitmap)
-
-        // The image is predominantly healthy green but the model says disease.
-        // Use the model's own Healthy score as the confidence so the number is
-        // always a real model probability, never a pixel-count fraction.
-        // • greenFraction ≥ 0.55f  → clearly healthy-looking → override to Healthy
-        //   Use max(modelHealthyScore, 0.75f) so it stays ≥ 0.60 threshold.
-        // • greenFraction ≥ 0.38f  → ambiguous → discount disease confidence below
-        //   0.60 threshold; routes to InvalidScanScreen "unclear".
-        // • modelHealthyScore ≥ 0.10f → model itself is uncertain → discount as well.
-        if (greenFraction >= 0.55f) {
-            // Scale confidence with how green the image is:
-            // 55% green → ~0.75, 70% green → ~0.83, 85%+ green → ~0.92+
-            // This gives varied, meaningful values instead of a fixed floor.
-            val confidence = 0.75f + ((greenFraction - 0.55f) / 0.45f) * 0.23f
-            return Result("Healthy", confidence.coerceIn(0.75f, 0.98f))
-        } else if (greenFraction >= 0.38f && topScore < 0.90f) {
-            return Result(label, topScore * 0.55f)
-        } else if (modelHealthyScore >= 0.10f) {
-            return Result(label, topScore * (1.0f - modelHealthyScore))
-        }
-
-        return Result(label, topScore)
+        return Result(label, confidence)
     }
 
     /** Classify from a JPEG/PNG file on disk. */
     fun classifyFromFile(file: java.io.File): Result? {
-        val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+        // Force ARGB_8888 so getPixels() always works
+        val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, opts) ?: run {
+            android.util.Log.e(TAG, "decodeFile returned null for ${file.absolutePath}")
+            return null
+        }
         return classify(bitmap)
     }
 
     /** Classify from a content URI (e.g., picked from gallery). */
     fun classifyFromUri(uri: Uri): Result? {
         return try {
-            val stream = context.contentResolver.openInputStream(uri) ?: return null
-            val bitmap = BitmapFactory.decodeStream(stream)
+            val stream = context.contentResolver.openInputStream(uri) ?: run {
+                android.util.Log.e(TAG, "openInputStream returned null for $uri")
+                return null
+            }
+            // Force ARGB_8888 so getPixels() always works on gallery images
+            val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+            val bitmap = BitmapFactory.decodeStream(stream, null, opts)
             stream.close()
+            if (bitmap == null) {
+                android.util.Log.e(TAG, "decodeStream returned null for $uri")
+                return null
+            }
             classify(bitmap)
         } catch (e: Exception) {
+            android.util.Log.e(TAG, "classifyFromUri error: ${e.message}", e)
             null
         }
     }

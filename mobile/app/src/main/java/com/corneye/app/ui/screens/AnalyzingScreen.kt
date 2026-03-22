@@ -82,8 +82,9 @@ fun AnalyzingScreen(
 
         kotlinx.coroutines.delay(400)
 
-        // Reject low-confidence results — ambiguous or not a corn leaf
-        if (confidence < 0.60f) {
+        // Reject low-confidence results — the leaf detector already confirmed this
+        // is a corn leaf, so we only reject if the disease classifier is truly uncertain
+        if (confidence < 0.40f) {
             val reason = if (diseaseName == "Analysis Unavailable") "not_corn" else "unclear"
             navController.navigate(Screen.InvalidScan.createRoute(reason)) {
                 popUpTo(Screen.Scan.route)
@@ -92,7 +93,7 @@ fun AnalyzingScreen(
         }
 
         // Save to Firebase then navigate
-        saveAnalysisToFirebase(context, diseaseName, confidence)
+        saveAnalysisToFirebase(context, diseaseName, confidence, imageUri)
 
         navController.navigate(
             Screen.Result.createRoute(diseaseName, confidence, imageUri)
@@ -245,10 +246,35 @@ private fun AnalysisStep(state: Int, text: String) {
     }
 }
 
-private suspend fun saveAnalysisToFirebase(context: Context, label: String, confidence: Float) {
+private suspend fun saveAnalysisToFirebase(context: Context, label: String, confidence: Float, imageUri: String = "") {
     val userId = UserPreferences.getUserId(context).first()
 
     if (userId.isEmpty()) return
+
+    // Encode the scanned image as compressed Base64 for the full report
+    val imageBase64 = try {
+        if (imageUri.isNotEmpty()) {
+            val uri = Uri.parse(imageUri)
+            val inputStream = context.contentResolver.openInputStream(uri)
+                ?: java.io.File(java.net.URI(imageUri)).inputStream()
+            val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            inputStream.close()
+            // Scale down to save space (max 400px wide)
+            val scale = (400f / originalBitmap.width).coerceAtMost(1f)
+            val scaled = android.graphics.Bitmap.createScaledBitmap(
+                originalBitmap,
+                (originalBitmap.width * scale).toInt(),
+                (originalBitmap.height * scale).toInt(),
+                true
+            )
+            val baos = java.io.ByteArrayOutputStream()
+            scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, baos)
+            android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP)
+        } else ""
+    } catch (e: Exception) {
+        android.util.Log.e("AnalyzingScreen", "Failed to encode image: ${e.message}")
+        ""
+    }
 
     val resultId = FirebaseHelper.analysisResultsRef().push().key ?: return
     val isHealthy = label == "Healthy"
@@ -259,7 +285,8 @@ private suspend fun saveAnalysisToFirebase(context: Context, label: String, conf
         "farmer_id"       to userId,
         "analysis_label"  to label,
         "confidence_score" to confidence,
-        "time_scanned"    to System.currentTimeMillis()
+        "time_scanned"    to System.currentTimeMillis(),
+        "image_url"       to imageBase64
     )
     FirebaseHelper.analysisResultsRef().child(resultId).setValue(resultData)
         .addOnFailureListener { e ->
