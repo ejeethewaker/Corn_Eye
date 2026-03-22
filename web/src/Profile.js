@@ -1,7 +1,7 @@
 // Admin Profile
 // View and update the admin account details and profile photo.
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
 import { ref, get, update } from 'firebase/database';
 import './Users.css';
@@ -145,13 +145,12 @@ function Profile() {
             />
           </div>
 
-          <div className="sidebar-user-card sidebar-user-clickable" onClick={() => navigate('/profile')}>
+          <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
             <div className="user-avatar">{initials || '?'}</div>
             <div className="user-info">
-              <span className="user-name">{fullName || 'Admin'}</span>
-              <span className="user-role">Administrator</span>
+              <span className="user-name">{fullName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>
-          </div>
+          </Link>
 
           <nav className="sidebar-nav">
             <button className="nav-item" onClick={() => navigate('/dashboard')}>
@@ -161,7 +160,7 @@ function Profile() {
                   <path d="M9 21V12h6v9"/>
                 </svg>
               </span>
-              Dashboard
+              <span>Dashboard</span>
             </button>
             <button className="nav-item" onClick={() => navigate('/users')}>
               <span className="nav-icon">
@@ -170,7 +169,7 @@ function Profile() {
                   <path d="M5.5 21a6.5 6.5 0 0113 0"/>
                 </svg>
               </span>
-              Users
+              <span>Users</span>
             </button>
             <button className="nav-item" onClick={() => navigate('/notifications')}>
               <span className="nav-icon">
@@ -181,7 +180,7 @@ function Profile() {
                   <path d="M18 4a1 1 0 00-1-1"/>
                 </svg>
               </span>
-              Notifications
+              <span>Notifications</span>
             </button>
           </nav>
         </div>
@@ -195,7 +194,7 @@ function Profile() {
                 <line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
             </span>
-            Logout
+            <span>Logout</span>
           </button>
         </div>
       </aside>
@@ -240,10 +239,11 @@ function Profile() {
 
               {/* Full Name */}
               <div className="profile-field">
-                <label className="profile-label">
+                <label className="profile-label" htmlFor="profile-fullname">
                   Full Name <span className="required">*</span>
                 </label>
                 <input
+                  id="profile-fullname"
                   type="text"
                   className="profile-input"
                   value={fullName}
@@ -254,10 +254,11 @@ function Profile() {
 
               {/* Email Address */}
               <div className="profile-field">
-                <label className="profile-label">
+                <label className="profile-label" htmlFor="profile-email">
                   Email Address <span className="required">*</span>
                 </label>
                 <input
+                  id="profile-email"
                   type="email"
                   className="profile-input"
                   value={email}
@@ -268,8 +269,9 @@ function Profile() {
 
               {/* Phone Number */}
               <div className="profile-field">
-                <label className="profile-label">Phone Number</label>
+                <label className="profile-label" htmlFor="profile-phone">Phone Number</label>
                 <input
+                  id="profile-phone"
                   type="tel"
                   className="profile-input"
                   placeholder="+63 912 345 6789"
@@ -280,8 +282,9 @@ function Profile() {
 
               {/* Bio */}
               <div className="profile-field">
-                <label className="profile-label">Bio</label>
+                <label className="profile-label" htmlFor="profile-bio">Bio</label>
                 <textarea
+                  id="profile-bio"
                   className="profile-input profile-textarea"
                   placeholder={`System administrator for CornEye platform\nManaging corn disease detection for Filipino farmers`}
                   value={bio}
