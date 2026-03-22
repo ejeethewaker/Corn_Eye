@@ -53,8 +53,10 @@ CornEye allows farmers to photograph a corn leaf with their Android phone, and r
 │               Firebase Storage                                  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │               TFLite Model (on-device)                   │   │
-│  │   MobileNetV2 · 4 classes · 224×224 float16 quantized    │   │
+│  │               TFLite Models (on-device)                  │   │
+│  │   Stage 1: Corn Leaf Detector (5-class)                  │   │
+│  │   Stage 2: Disease Classifier · MobileNetV2 · 4 classes  │   │
+│  │   224×224 · float32                                      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -79,9 +81,20 @@ The model classifies corn leaf images into 4 categories:
 ```
 CornEye/
 ├── README.md                       ← This file
+├── vercel.json                     ← Web dashboard deployment config
 │
-├── train_model.py                  ← Train MobileNetV2 on PlantVillage dataset
-├── convert_model.py                ← Convert SavedModel → TFLite (float16)
+├── scripts/                        ← ML training & utility scripts
+│   ├── train_model.py              ← Train MobileNetV2 disease classifier
+│   ├── train_leaf_detector.py      ← Train corn leaf detector (Stage 1)
+│   ├── convert_model.py            ← Convert Keras → TFLite
+│   └── val_model_accuracy.py       ← Validate model accuracy on dataset
+│
+├── models/                         ← Trained model artifacts
+│   ├── corn_disease_keras_model.keras
+│   ├── corn_disease_model.tflite
+│   ├── corn_leaf_detector.tflite
+│   ├── labels.txt
+│   └── leaf_labels.txt
 │
 ├── mobile/                         ← Android app
 │   └── app/
@@ -89,7 +102,9 @@ CornEye/
 │       └── src/main/
 │           ├── assets/
 │           │   ├── corn_disease_model.tflite
-│           │   └── labels.txt
+│           │   ├── corn_leaf_detector.tflite
+│           │   ├── labels.txt
+│           │   └── leaf_labels.txt
 │           └── java/com/corneye/app/
 │               ├── data/
 │               │   ├── FirebaseHelper.kt
@@ -130,23 +145,17 @@ CornEye/
 │                       ├── SetNewPasswordScreen.kt
 │                       └── AccountCreatedScreen.kt
 │
-├── web/                            ← React admin dashboard
-│   ├── package.json
-│   └── src/
-│       ├── App.js
-│       ├── firebase.js
-│       ├── Login.js / Login.css
-│       ├── Dashboard.js / Dashboard.css
-│       ├── Users.js / Users.css
-│       ├── UserProfile.js / UserProfile.css
-│       ├── Notifications.js / Notifications.css
-│       └── Profile.js
-│
-└── model/
-    └── model_mobnetv2/             ← Pre-trained Keras SavedModel (MobileNetV2)
-        ├── saved_model.pb
-        ├── keras_metadata.pb
-        └── variables/
+└── web/                            ← React admin dashboard
+    ├── package.json
+    └── src/
+        ├── App.js
+        ├── firebase.js
+        ├── Login.js / Login.css
+        ├── Dashboard.js / Dashboard.css
+        ├── Users.js / Users.css
+        ├── UserProfile.js / UserProfile.css
+        ├── Notifications.js / Notifications.css
+        └── Profile.js
 ```
 
 ---
@@ -165,10 +174,10 @@ CornEye/
 |---|---|
 | Splash / Login / Register | Authentication with Firebase Auth |
 | Home | Overview stats (total scans, diseases, healthy), recent history |
-| Scan | CameraX live preview → capture → TFLite inference |
+| Scan | CameraX live preview → capture → two-stage TFLite inference (leaf detection → disease classification) |
 | Analyzing | On-device MobileNetV2 inference with confidence score |
 | Result | Disease label, confidence percentage, quick actions |
-| Full Report | Detailed disease info, causes, treatments, prevention |
+| Full Report | Scanned image, detailed disease info, causes, treatments, prevention |
 | Invalid Scan | Graceful handler when image is not a corn leaf |
 | History | Paginated scan history list with disease / healthy filter |
 | Notifications | Scan result alerts and new-farmer notifications with read/unread indicators |
@@ -189,7 +198,7 @@ CornEye/
 
 1. Open `mobile/` in Android Studio.
 2. Place `google-services.json` in `mobile/app/`.
-3. Place `corn_disease_model.tflite` in `mobile/app/src/main/assets/` (or run `python train_model.py` to generate it).
+3. Place `corn_disease_model.tflite` in `mobile/app/src/main/assets/` (or run `python scripts/train_model.py` to generate it).
 4. Click **Run** or build APK via `Build → Generate Signed Bundle/APK`.
 
 ---
@@ -236,21 +245,21 @@ The model is trained on the **PlantVillage** dataset (corn classes only) using M
 
 ```bash
 pip install tensorflow tensorflow-datasets
-python train_model.py
+python scripts/train_model.py
 ```
 
-Output: `corn_disease_model.tflite` — copy to `mobile/app/src/main/assets/`.
+Output: `models/corn_disease_model.tflite` — auto-copied to `mobile/app/src/main/assets/`.
 
 ### Converting a pre-existing Keras model
 
-If you already have the Keras SavedModel in `public/Corn-Leaf-Diseases-Detection-master/model_mobnetv2/`:
+If you already have a Keras `.keras` file in `models/`:
 
 ```bash
-pip install tensorflow-cpu==2.14.0
-python convert_model.py
+pip install tensorflow
+python scripts/convert_model.py
 ```
 
-This applies **float16 quantization** for an optimal accuracy/size balance.
+This exports a **float32** TFLite model.
 
 ### Model specs
 
@@ -259,10 +268,10 @@ This applies **float16 quantization** for an optimal accuracy/size balance.
 | Architecture | MobileNetV2 (ImageNet pretrained) |
 | Input | 224 × 224 RGB |
 | Output | 4-class softmax |
-| Quantization | Float16 |
+| Quantization | Float32 (no quantization) |
 | Format | TFLite |
 | Classes | Common Rust, Gray Leaf Spot, Healthy, Northern Leaf Blight |
-| Training accuracy | ~93% |
+| Validation accuracy | 98.31% |
 
 ---
 
@@ -347,8 +356,8 @@ This applies **float16 quantization** for an optimal accuracy/size balance.
 5. **ML model** (optional — pre-built `.tflite` is already in assets)
    ```bash
    pip install tensorflow tensorflow-datasets
-   python train_model.py
-   # Output: corn_disease_model.tflite → copy to mobile/app/src/main/assets/
+   python scripts/train_model.py
+   # Output: models/corn_disease_model.tflite → auto-copied to mobile/app/src/main/assets/
    ```
 
 ---
@@ -359,6 +368,6 @@ This applies **float16 quantization** for an optimal accuracy/size balance.
 |---|---|
 | Mobile | Kotlin · Jetpack Compose · CameraX · TensorFlow Lite · Firebase |
 | Web Admin | React 19 · React Router 7 · Firebase JS SDK 12 |
-| AI Model | MobileNetV2 · TFLite float16 · PlantVillage dataset |
+| AI Model | MobileNetV2 · TFLite float32 · PlantVillage dataset |
 | Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage |
 | Build | Gradle 8 (KTS) · Android SDK 35 |
