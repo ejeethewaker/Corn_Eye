@@ -1,7 +1,7 @@
 // Admin Dashboard
 // Main admin screen showing scan statistics, disease analytics, and recent activity.
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
 import { ref, get } from 'firebase/database';
 import './Dashboard.css';
@@ -130,13 +130,12 @@ function Dashboard() {
             />
           </div>
 
-          <div className="sidebar-user-card sidebar-user-clickable" onClick={() => navigate('/profile')}>
+          <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
             <div className="user-avatar">{adminInitials || '?'}</div>
             <div className="user-info">
-              <span className="user-name">{adminName || 'Admin'}</span>
-              <span className="user-role">Administrator</span>
+              <span className="user-name">{adminName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>
-          </div>
+          </Link>
 
           <nav className="sidebar-nav">
             <button className="nav-item active">
@@ -146,7 +145,7 @@ function Dashboard() {
                   <path d="M9 21V12h6v9"/>
                 </svg>
               </span>
-              Dashboard
+              <span>Dashboard</span>
             </button>
             <button className="nav-item" onClick={() => navigate('/users')}>
               <span className="nav-icon">
@@ -155,7 +154,7 @@ function Dashboard() {
                   <path d="M5.5 21a6.5 6.5 0 0113 0"/>
                 </svg>
               </span>
-              Users
+              <span>Users</span>
             </button>
             <button className="nav-item" onClick={() => navigate('/notifications')}>
               <span className="nav-icon">
@@ -166,7 +165,7 @@ function Dashboard() {
                   <path d="M18 4a1 1 0 00-1-1"/>
                 </svg>
               </span>
-              Notifications
+              <span>Notifications</span>
             </button>
           </nav>
         </div>
@@ -180,7 +179,7 @@ function Dashboard() {
                 <line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
             </span>
-            Logout
+            <span>Logout</span>
           </button>
         </div>
       </aside>
