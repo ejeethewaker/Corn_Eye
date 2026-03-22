@@ -1,13 +1,17 @@
 // Farmers List
 // Lists all registered farmers with search and account management options.
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
 import { ref, get } from 'firebase/database';
 import './Users.css';
 import './Dashboard.css';
 
 const avatarColors = ['#2196f3', '#4caf50', '#e91e63', '#9c27b0', '#ff9800', '#00bcd4', '#795548'];
+
+function getInitials(name) {
+  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+}
 
 function Users() {
   const navigate = useNavigate();
@@ -41,7 +45,7 @@ function Users() {
           const farmersList = Object.keys(farmersData).map((key, index) => {
             const farmer = farmersData[key];
             const name = farmer.fullname || 'Unknown';
-            const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+            const initials = getInitials(name);
             const rawStatus = farmer.status || 'active';
             const status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
             const rawPhoto = farmer.profile_photo_url || null;
@@ -91,13 +95,12 @@ function Users() {
             />
           </div>
 
-          <div className="sidebar-user-card sidebar-user-clickable" onClick={() => navigate('/profile')}>
+          <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
             <div className="user-avatar">{adminInitials || '?'}</div>
             <div className="user-info">
-              <span className="user-name">{adminName || 'Admin'}</span>
-              <span className="user-role">Administrator</span>
+              <span className="user-name">{adminName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>
-          </div>
+          </Link>
 
           <nav className="sidebar-nav">
             <button className="nav-item" onClick={() => navigate('/dashboard')}>
@@ -107,7 +110,7 @@ function Users() {
                   <path d="M9 21V12h6v9"/>
                 </svg>
               </span>
-              Dashboard
+              <span>Dashboard</span>
             </button>
             <button className="nav-item active">
               <span className="nav-icon">
@@ -116,7 +119,7 @@ function Users() {
                   <path d="M5.5 21a6.5 6.5 0 0113 0"/>
                 </svg>
               </span>
-              Users
+              <span>Users</span>
             </button>
             <button className="nav-item" onClick={() => navigate('/notifications')}>
               <span className="nav-icon">
@@ -127,7 +130,7 @@ function Users() {
                   <path d="M18 4a1 1 0 00-1-1"/>
                 </svg>
               </span>
-              Notifications
+              <span>Notifications</span>
             </button>
           </nav>
         </div>
@@ -141,7 +144,7 @@ function Users() {
                 <line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
             </span>
-            Logout
+            <span>Logout</span>
           </button>
         </div>
       </aside>
@@ -177,7 +180,7 @@ function Users() {
         {/* User Rows */}
         <div className="um-user-list">
           {filteredUsers.map((user) => (
-            <div key={user.id} className="um-user-row" onClick={() => navigate(`/user/${user.id}`)} style={{cursor: 'pointer'}}>
+            <Link key={user.id} to={`/user/${user.id}`} className="um-user-row" style={{cursor: 'pointer', textDecoration: 'none', color: 'inherit'}}>
               <div className="um-col-name">
                 <div
                   className="um-user-avatar"
@@ -211,7 +214,7 @@ function Users() {
                   🗑️
                 </button>
               </span>
-            </div>
+            </Link>
           ))}
         </div>
       </main>
