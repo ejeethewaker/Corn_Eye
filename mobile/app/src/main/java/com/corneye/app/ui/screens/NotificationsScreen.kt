@@ -290,13 +290,12 @@ fun NotificationCard(notification: NotificationItem, navController: NavControlle
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, DividerColor, RoundedCornerShape(14.dp)),
+            .fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (notification.isRead) White else GoldenBackground.copy(alpha = 0.18f)
+            containerColor = if (notification.isRead) White else GoldenBackground.copy(alpha = 0.30f)
         ),
-        elevation = CardDefaults.cardElevation(1.dp)
+        elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Row(
             modifier = Modifier
