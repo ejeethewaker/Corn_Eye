@@ -8,6 +8,8 @@ import Users from './Users';
 import Notifications from './Notifications';
 import Profile from './Profile';
 import UserProfile from './UserProfile';
+import Documentation from './Documentation';
+import DocumentationQuestions from './DocumentationQuestions';
 
 function isAuthenticated() {
   return (
@@ -44,6 +46,14 @@ function App() {
         <Route
           path="/user/:id"
           element={<ProtectedRoute><UserProfile /></ProtectedRoute>}
+        />
+        <Route
+          path="/documentation"
+          element={<ProtectedRoute><Documentation /></ProtectedRoute>}
+        />
+        <Route
+          path="/documentation/questions"
+          element={<ProtectedRoute><DocumentationQuestions /></ProtectedRoute>}
         />
       </Routes>
     </Router>

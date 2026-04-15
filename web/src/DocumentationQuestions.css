@@ -1,0 +1,104 @@
+/* ── Documentation Questions Page ── */
+
+/* ── Q&A List ── */
+.qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qa-item {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.qa-item:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.09);
+}
+
+.qa-item-open {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Question button ── */
+.qa-question {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 16px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.qa-question:hover {
+  background: #fafafa;
+}
+
+.qa-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #f5b731;
+  color: #1a1a1a;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.qa-q-text {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a1a;
+  line-height: 1.4;
+}
+
+.qa-chevron {
+  flex-shrink: 0;
+  color: #999;
+  transition: transform 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.qa-chevron-open {
+  transform: rotate(180deg);
+}
+
+/* ── Answer panel ── */
+.qa-answer {
+  padding: 0 20px 18px 60px;
+  animation: qaSlideDown 0.2s ease-out;
+}
+
+.qa-answer p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #444;
+  margin: 0;
+  padding: 12px 16px;
+  background: #f9f9f4;
+  border-left: 3px solid #f5b731;
+  border-radius: 0 8px 8px 0;
+}
+
+@keyframes qaSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
