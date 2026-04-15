@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
-import { ref, get, update, onValue } from 'firebase/database';
+import { ref, get, update, remove, onValue } from 'firebase/database';
 import './Notifications.css';
 import './Dashboard.css';
 
@@ -38,12 +38,19 @@ function Notifications() {
   const [selectedNotif, setSelectedNotif] = useState(null);
   const [farmerName, setFarmerName] = useState('');
   const [scanImage, setScanImage] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const markAsRead = (notifId) => {
     setNotifications((prev) =>
       prev.map((n) => n.id === notifId ? { ...n, read: true } : n)
     );
     update(ref(database, `notifications/${notifId}`), { is_read: true });
+  };
+
+  const deleteNotif = (notifId) => {
+    remove(ref(database, `notifications/${notifId}`));
+    setConfirmDeleteId(null);
+    setSelectedNotif(null);
   };
 
   const openNotifDetail = (notif) => {
@@ -360,11 +367,39 @@ function Notifications() {
                     <span className="notif-detail-value">{selectedNotif.read ? 'Read' : 'Unread'}</span>
                   </div>
                 </div>
+
+                <button className="notif-delete-btn" onClick={() => setConfirmDeleteId(selectedNotif.id)}>
+                  Delete Notification
+                </button>
               </div>
             </div>
           </dialog>
           );
         })()}
+
+        {/* Delete Confirmation Modal */}
+        {confirmDeleteId && (
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+          <dialog className="notif-modal-overlay confirm-overlay" open
+            onClick={() => setConfirmDeleteId(null)} onKeyDown={(e) => e.key === 'Escape' && setConfirmDeleteId(null)}>
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="confirm-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d32f2f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                  <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+              </div>
+              <h3 className="confirm-title">Delete Notification</h3>
+              <p className="confirm-message">Are you sure you want to delete this notification? This action cannot be undone.</p>
+              <div className="confirm-actions">
+                <button className="confirm-cancel" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                <button className="confirm-delete" onClick={() => deleteNotif(confirmDeleteId)}>Delete</button>
+              </div>
+            </div>
+          </dialog>
+        )}
       </main>
     </div>
   );

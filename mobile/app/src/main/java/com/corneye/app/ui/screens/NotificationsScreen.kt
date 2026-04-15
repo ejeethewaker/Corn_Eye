@@ -25,7 +25,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
 import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
@@ -60,43 +63,46 @@ fun NotificationsScreen(navController: NavController) {
     var notifications by remember { mutableStateOf<List<NotificationItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Load notifications from Firebase
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
-            FirebaseHelper.notificationsRef().get()
-                .addOnSuccessListener { snapshot ->
-                    val items = mutableListOf<NotificationItem>()
-                    val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
-                    val timeFormat = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                    snapshot.children.forEach { child ->
-                        val notifUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
-                        if (notifUserId == userId) {
-                            val typeStr = child.child("notif_type").getValue(String::class.java) ?: "scan_healthy"
-                            val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
-                            val dateObj = if (timeScanned > 0) java.util.Date(timeScanned) else java.util.Date()
-                            items.add(
-                                NotificationItem(
-                                    id = child.key ?: "",
-                                    title = child.child("notif_title").getValue(String::class.java) ?: "",
-                                    timeAgo = if (timeScanned > 0) getTimeAgo(timeScanned) else "",
-                                    description = child.child("notif_message").getValue(String::class.java) ?: "",
-                                    actionLabel = if (typeStr == "scan_disease") "View Details →" else "View Results →",
-                                    type = if (typeStr == "scan_disease") NotificationType.DISEASE_DETECTED else NotificationType.SCAN_COMPLETE,
-                                    isRead = child.child("is_read").getValue(Boolean::class.java) ?: false,
-                                    analysisId = child.child("analysis_id").getValue(String::class.java) ?: "",
-                                    analysisLabel = child.child("analysis_label").getValue(String::class.java) ?: "",
-                                    confidenceScore = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
-                                    date = dateFormat.format(dateObj),
-                                    time = timeFormat.format(dateObj)
-                                )
+    // Real-time listener for notifications
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val items = mutableListOf<NotificationItem>()
+                val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+                val timeFormat = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                snapshot.children.forEach { child ->
+                    val notifUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                    if (notifUserId == userId) {
+                        val typeStr = child.child("notif_type").getValue(String::class.java) ?: "scan_healthy"
+                        val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
+                        val dateObj = if (timeScanned > 0) java.util.Date(timeScanned) else java.util.Date()
+                        items.add(
+                            NotificationItem(
+                                id = child.key ?: "",
+                                title = child.child("notif_title").getValue(String::class.java) ?: "",
+                                timeAgo = if (timeScanned > 0) getTimeAgo(timeScanned) else "",
+                                description = child.child("notif_message").getValue(String::class.java) ?: "",
+                                actionLabel = if (typeStr == "scan_disease") "View Details →" else "View Results →",
+                                type = if (typeStr == "scan_disease") NotificationType.DISEASE_DETECTED else NotificationType.SCAN_COMPLETE,
+                                isRead = child.child("is_read").getValue(Boolean::class.java) ?: false,
+                                analysisId = child.child("analysis_id").getValue(String::class.java) ?: "",
+                                analysisLabel = child.child("analysis_label").getValue(String::class.java) ?: "",
+                                confidenceScore = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
+                                date = dateFormat.format(dateObj),
+                                time = timeFormat.format(dateObj)
                             )
-                        }
+                        )
                     }
-                    notifications = items.sortedByDescending { it.id }
-                    isLoading = false
                 }
-                .addOnFailureListener { isLoading = false }
+                notifications = items.sortedByDescending { it.id }
+                isLoading = false
+            }
+            override fun onCancelled(error: DatabaseError) { isLoading = false }
         }
+        val ref = FirebaseHelper.notificationsRef()
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     val filteredNotifications = when (selectedFilter) {
