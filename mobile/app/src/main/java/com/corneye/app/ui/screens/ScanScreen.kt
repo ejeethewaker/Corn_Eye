@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
@@ -381,11 +382,16 @@ private fun CameraView(
     galleryLauncher: () -> Unit,
     onBack: () -> Unit
 ) {
+    var cameraInstance by remember { mutableStateOf<Camera?>(null) }
+    var isFlashOn by remember { mutableStateOf(false) }
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Camera preview
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx)
+                previewViewRef = previewView
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
                 cameraProviderFuture.addListener({
@@ -396,6 +402,7 @@ private fun CameraView(
 
                     val imgCapture = ImageCapture.Builder()
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .setFlashMode(ImageCapture.FLASH_MODE_OFF)
                         .build()
 
                     onImageCaptureReady(imgCapture)
@@ -404,12 +411,13 @@ private fun CameraView(
 
                     try {
                         cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
+                        val camera = cameraProvider.bindToLifecycle(
                             lifecycleOwner,
                             cameraSelector,
                             preview,
                             imgCapture
                         )
+                        cameraInstance = camera
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -417,7 +425,29 @@ private fun CameraView(
 
                 previewView
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.changes.any { it.pressed }) {
+                                val change = event.changes.first()
+                                val pv = previewViewRef ?: continue
+                                val cam = cameraInstance ?: continue
+                                val factory = pv.meteringPointFactory
+                                val point = factory.createPoint(
+                                    change.position.x,
+                                    change.position.y
+                                )
+                                val action = FocusMeteringAction.Builder(point)
+                                    .setAutoCancelDuration(3, java.util.concurrent.TimeUnit.SECONDS)
+                                    .build()
+                                cam.cameraControl.startFocusAndMetering(action)
+                            }
+                        }
+                    }
+                }
         )
 
         // Top bar overlay
@@ -582,16 +612,27 @@ private fun CameraView(
 
             // Flash toggle
             IconButton(
-                onClick = { /* Toggle flash */ },
+                onClick = {
+                    val cam = cameraInstance
+                    if (cam != null && cam.cameraInfo.hasFlashUnit()) {
+                        isFlashOn = !isFlashOn
+                        cam.cameraControl.enableTorch(isFlashOn)
+                        imageCapture?.flashMode = if (isFlashOn)
+                            ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+                    }
+                },
                 modifier = Modifier
                     .size(52.dp)
                     .clip(CircleShape)
-                    .background(White.copy(alpha = 0.2f))
+                    .background(
+                        if (isFlashOn) GreenPrimary.copy(alpha = 0.5f)
+                        else White.copy(alpha = 0.2f)
+                    )
             ) {
                 Icon(
-                    Icons.Default.FlashOn,
+                    if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
                     contentDescription = "Flash",
-                    tint = White,
+                    tint = if (isFlashOn) Color.Yellow else White,
                     modifier = Modifier.size(26.dp)
                 )
             }
@@ -676,23 +717,20 @@ private fun performAnalysis(
     Thread {
         val uriString = imageFile?.toURI()?.toString() ?: imageUri?.toString() ?: ""
 
-        // ── Stage 1: Leaf detection ───────────────────────────────────────
-        // Validate that the image actually contains a corn leaf before
-        // running the more expensive disease classifier.
+        // ── Stage 1: Green pixel pre-filter (fast, no model) ─────────────
+        // Reject obviously non-plant images before running the classifier.
         val leafDetector = CornLeafDetector(context)
-        val leafModelLoaded = leafDetector.initialize()
+        leafDetector.initialize()
 
-        val isCorn: Boolean = when {
-            !leafModelLoaded  -> true   // model missing → assume corn to avoid false rejections
+        val passesColorCheck: Boolean = when {
             imageFile != null -> leafDetector.isCornLeafFromFile(imageFile)
             imageUri  != null -> leafDetector.isCornLeafFromUri(imageUri)
             else              -> false
         }
         leafDetector.close()
 
-        if (!isCorn) {
-            // Not a corn leaf — skip disease classification entirely
-            android.util.Log.d("ScanScreen", "Leaf detector: NOT a corn leaf → InvalidScan")
+        if (!passesColorCheck) {
+            android.util.Log.d("ScanScreen", "Color pre-filter: FAILED → InvalidScan")
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 onComplete()
                 navController.navigate(Screen.InvalidScan.createRoute("not_corn")) {
@@ -702,8 +740,9 @@ private fun performAnalysis(
             return@Thread
         }
 
-        // ── Stage 2: Disease classification ──────────────────────────────
-        // Image is confirmed as a corn leaf — classify which disease it has.
+        // ── Stage 2: Disease classification with OOD gates ───────────────
+        // Single model: 5 classes (4 corn diseases + Invalid).
+        // OOD gates: reject if class=="Invalid" OR confidence<70% OR entropy>0.8
         val classifier = CornDiseaseClassifier(context)
         val modelLoaded = classifier.initialize()
 
@@ -715,8 +754,25 @@ private fun performAnalysis(
         }
         classifier.close()
 
-        val label      = tfliteResult?.label      ?: "Analysis Unavailable"
-        val confidence = tfliteResult?.confidence ?: 0f
+        // Check OOD gates
+        if (tfliteResult == null || !tfliteResult.isValid) {
+            val reason = when {
+                tfliteResult == null -> "model_error"
+                else -> "ood_rejected"
+            }
+            android.util.Log.d("ScanScreen", "OOD gate: REJECTED (${tfliteResult?.label}, " +
+                "conf=${tfliteResult?.confidence}, entropy=${tfliteResult?.entropy}) → InvalidScan")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                onComplete()
+                navController.navigate(Screen.InvalidScan.createRoute(reason)) {
+                    popUpTo(Screen.Scan.route)
+                }
+            }
+            return@Thread
+        }
+
+        val label      = tfliteResult.label
+        val confidence = tfliteResult.confidence
 
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             onComplete()

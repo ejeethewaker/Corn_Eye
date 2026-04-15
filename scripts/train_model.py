@@ -1,10 +1,34 @@
 """
-CornEye - Disease Classifier Trainer (4-Class, First Model)
-============================================================
-Trains a MobileNetV2 corn DISEASE classifier — Stage 2 of the two-model pipeline.
-This is the "first model": it only knows the 4 corn disease classes and has NO
-"Other" class. Non-corn validation is handled separately by the leaf detector
-(see train_leaf_detector.py).
+CornEye — Single-Model Disease Classifier (5-Class with Invalid)
+=================================================================
+Follows the 5-phase pipeline:
+
+  Phase 1 — Data collection & augmentation
+    • PlantVillage corn subset (2,000+ images/class)
+    • 5th "Invalid" class from all non-corn plant folders (OOD detection)
+    • Heavy augmentation: flip, rotate, crop, HSV jitter, Gaussian noise
+    • Class balancing via oversampling the minority classes
+
+  Phase 2 — Architecture & training
+    • Transfer learning: MobileNetV2 (ImageNet pretrained)
+    • Input: 224×224 RGB, normalized [0,1]
+    • Two-stage: frozen head (Phase 2a) → fine-tune top layers at LR 1e-4 (Phase 2b)
+    • Fresh callbacks per phase to avoid state carryover
+
+  Phase 3 — Evaluation & validation
+    • Confusion matrix with per-class precision/recall/F1
+    • Target: >95% validation accuracy
+
+  Phase 4 — TFLite conversion & optimization
+    • INT8 quantization (representative dataset, 500 images) — keep >94%
+    • Validates quantized accuracy on a 500-image sample
+    • Outputs corn_disease_model.tflite
+
+  Phase 5 — Mobile UX
+    • Handled by the Android app:
+      1. Green pixel ratio check (fast color gate)
+      2. TFLite inference (this model)
+      3. If predicted class == "Invalid" OR confidence <70% OR entropy >0.8 → reject
 
 Dataset expected at:
     C:\\Users\\Admin\\Downloads\\PlantsLeafs\\Full\\
@@ -13,43 +37,56 @@ Dataset expected at:
             Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot/
             Corn_(maize)___healthy/
             Corn_(maize)___Northern_Leaf_Blight/
-            <other plant folders are ignored by this script>
+            <all other plant folders → "Invalid" class>
         val/     (same structure)
 
-Classes produced (4):
+Classes (5):
   0 - Common Rust
   1 - Gray Leaf Spot
   2 - Healthy
   3 - Northern Leaf Blight
+  4 - Invalid
 
 Output:
-  corn_disease_model.tflite   →  copied to mobile/app/src/main/assets/
-  labels.txt                  →  copied to mobile/app/src/main/assets/
-
-Two-model pipeline:
-  corn_leaf_detector.tflite  (train_leaf_detector.py)  ← Stage 1: is it a corn leaf?
-  corn_disease_model.tflite  (this script)             ← Stage 2: which disease?
+  corn_disease_model.tflite   →  auto-copied to mobile/app/src/main/assets/
+  labels.txt                  →  auto-copied to mobile/app/src/main/assets/
+  training_phase2a_log.csv   →  saved in models/ for diagnosis
+  training_phase2b_log.csv   →  saved in models/ for diagnosis
 """
 
 import os
 import random
+import shutil
 import numpy as np
 import tensorflow as tf
+from collections import Counter
 
-# ── Config ────────────────────────────────────────────────────────────────────
-BASE_DIR      = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
-TRAIN_DIR     = os.path.join(BASE_DIR, "train")
-VAL_DIR       = os.path.join(BASE_DIR, "val")
+# ══════════════════════════════════════════════════════════════════════════════
+# Config
+# ══════════════════════════════════════════════════════════════════════════════
+BASE_DIR       = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
+TRAIN_DIR      = os.path.join(BASE_DIR, "train")
+VAL_DIR        = os.path.join(BASE_DIR, "val")
 
-IMG_SIZE      = 224
-BATCH_SIZE    = 32
-EPOCHS_HEAD   = 25
-EPOCHS_FINE   = 20
-SEED          = 42
-MODELS_DIR    = os.path.join(os.path.dirname(__file__), "..", "models")
-OUTPUT_MODEL  = os.path.join(MODELS_DIR, "corn_disease_model.tflite")
-OUTPUT_LABELS = os.path.join(MODELS_DIR, "labels.txt")
-BEST_CKPT     = os.path.join(MODELS_DIR, "best_disease_model.keras")
+IMG_SIZE       = 224
+BATCH_SIZE     = 32
+EPOCHS_HEAD    = 30          # Phase 2a: frozen backbone, train head only
+EPOCHS_FINE    = 25          # Phase 2b: fine-tune top layers
+SEED           = 42
+MODELS_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
+ASSETS_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                              "mobile", "app", "src", "main", "assets")
+OUTPUT_TFLITE  = os.path.join(MODELS_DIR, "corn_disease_model.tflite")
+OUTPUT_LABELS  = os.path.join(MODELS_DIR, "labels.txt")
+OUTPUT_KERAS   = os.path.join(MODELS_DIR, "corn_disease_keras_model.keras")
+BEST_CKPT      = os.path.join(MODELS_DIR, "best_disease_model.keras")
+TRAINING_LOG_A = os.path.join(MODELS_DIR, "training_phase2a_log.csv")
+TRAINING_LOG_B = os.path.join(MODELS_DIR, "training_phase2b_log.csv")
+
+TARGET_VAL_ACC   = 0.95      # Phase 3: target >95% validation accuracy
+TARGET_QUANT_ACC = 0.94      # Phase 4: quantized model must keep >94%
+QUANT_VAL_SAMPLE = 500       # Number of images for quantized accuracy check
+REP_DATASET_SIZE = 500       # Representative images for INT8 calibration
 
 CORN_FOLDER_MAP = {
     "Corn_(maize)___Common_rust_"                        : "Common Rust",
@@ -58,70 +95,177 @@ CORN_FOLDER_MAP = {
     "Corn_(maize)___Northern_Leaf_Blight"                : "Northern Leaf Blight",
 }
 
-# 4 classes only — NO "Other" class in the disease classifier
-CLASSES     = sorted(CORN_FOLDER_MAP.values())
-NUM_CLASSES = len(CLASSES)   # 4
-print(f"Classes ({NUM_CLASSES}): {CLASSES}")
+# 5 classes: 4 corn diseases + Invalid (all non-corn plant folders)
+CLASSES     = sorted(CORN_FOLDER_MAP.values()) + ["Invalid"]
+NUM_CLASSES = len(CLASSES)   # 5
+INVALID_IDX = CLASSES.index("Invalid")
 
-# ── Collect image paths ───────────────────────────────────────────────────────
+os.makedirs(MODELS_DIR, exist_ok=True)
+
+random.seed(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+
+print(f"Classes ({NUM_CLASSES}): {CLASSES}")
+print(f"Invalid class index: {INVALID_IDX}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 1 — Data Collection & Augmentation
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("PHASE 1 — Data Collection & Augmentation")
+print("=" * 60)
+
 def collect_paths(split_dir):
-    corn_paths = []
+    """Collect corn disease images AND non-corn images as 'Invalid'."""
+    corn_paths    = []
+    invalid_paths = []
     for folder in os.listdir(split_dir):
         folder_path = os.path.join(split_dir, folder)
         if not os.path.isdir(folder_path):
             continue
-        if folder not in CORN_FOLDER_MAP:
-            continue  # skip non-corn folders — this model doesn't need them
         images = [
             os.path.join(folder_path, f)
             for f in os.listdir(folder_path)
-            if f.lower().endswith((".jpg", ".jpeg", ".png", ".JPG", ".JPEG"))
+            if f.lower().endswith((".jpg", ".jpeg", ".png"))
         ]
-        label_idx = CLASSES.index(CORN_FOLDER_MAP[folder])
-        corn_paths.extend((p, label_idx) for p in images)
-    return corn_paths
+        if folder in CORN_FOLDER_MAP:
+            label_idx = CLASSES.index(CORN_FOLDER_MAP[folder])
+            corn_paths.extend((p, label_idx) for p in images)
+        else:
+            # All non-corn plant folders → "Invalid"
+            invalid_paths.extend((p, INVALID_IDX) for p in images)
+    return corn_paths, invalid_paths
 
 print(f"\nLoading train split: {TRAIN_DIR}")
-train_all = collect_paths(TRAIN_DIR)
-print(f"  corn samples: {len(train_all)}")
+train_corn, train_invalid = collect_paths(TRAIN_DIR)
+print(f"  corn samples:    {len(train_corn)}")
+print(f"  invalid samples: {len(train_invalid)}")
+
+if not train_corn:
+    raise RuntimeError(
+        f"No corn training images found in {TRAIN_DIR}. "
+        f"Check CORN_FOLDER_MAP folder names match your dataset."
+    )
+
+# Cap Invalid class to 2x the largest corn class to prevent massive imbalance
+corn_by_class = {}
+for _, label in train_corn:
+    corn_by_class[label] = corn_by_class.get(label, 0) + 1
+max_corn_count = max(corn_by_class.values()) if corn_by_class else 2000
+MAX_INVALID = max_corn_count * 2
+if len(train_invalid) > MAX_INVALID:
+    train_invalid = random.sample(train_invalid, MAX_INVALID)
+    print(f"  Invalid class capped to {MAX_INVALID} samples (2x largest corn class)")
 
 print(f"Loading val split:   {VAL_DIR}")
-val_all = collect_paths(VAL_DIR)
-print(f"  corn samples: {len(val_all)}")
+val_corn, val_invalid = collect_paths(VAL_DIR)
+print(f"  corn samples:    {len(val_corn)}")
+print(f"  invalid samples: {len(val_invalid)}")
 
-random.seed(SEED)
+if not val_corn:
+    raise RuntimeError(
+        f"No corn validation images found in {VAL_DIR}. "
+        f"Check folder names match CORN_FOLDER_MAP."
+    )
+if not val_invalid:
+    print("  ⚠️  No invalid val images found — Invalid class recall cannot be measured.")
+
+# Cap val Invalid proportionally
+val_corn_counts = {}
+for _, label in val_corn:
+    val_corn_counts[label] = val_corn_counts.get(label, 0) + 1
+max_val_corn = max(val_corn_counts.values()) if val_corn_counts else 500
+MAX_VAL_INVALID = max_val_corn * 2
+if len(val_invalid) > MAX_VAL_INVALID:
+    val_invalid = random.sample(val_invalid, MAX_VAL_INVALID)
+    print(f"  Invalid val class capped to {MAX_VAL_INVALID} samples")
+
+train_all = train_corn + train_invalid
+val_all   = val_corn + val_invalid
+
+# ── Build stratified representative dataset BEFORE shuffling val_all ──────────
+# This way class sampling doesn't depend on shuffle ordering.
+REP_PER_CLASS = REP_DATASET_SIZE // NUM_CLASSES  # 100 per class
+rep_by_class = {i: [] for i in range(NUM_CLASSES)}
+for path, label in val_all:
+    if len(rep_by_class[label]) < REP_PER_CLASS:
+        rep_by_class[label].append(path)
+rep_paths = [p for paths in rep_by_class.values() for p in paths]
+random.shuffle(rep_paths)
+
 random.shuffle(train_all)
 random.shuffle(val_all)
 
-print(f"\nTrain total: {len(train_all)}  Val total: {len(val_all)}")
+# ── Class balance via oversampling ────────────────────────────────────────────
+train_by_class = {}
+for path, label in train_all:
+    train_by_class.setdefault(label, []).append((path, label))
 
-# ── tf.data pipeline ─────────────────────────────────────────────────────────
+class_counts = {k: len(v) for k, v in train_by_class.items()}
+max_count = max(class_counts.values())
+
+print("\nOriginal class distribution:")
+for idx in sorted(class_counts):
+    print(f"  {CLASSES[idx]:25s}: {class_counts[idx]}")
+
+# Oversample minority classes to match the largest class
+train_balanced = []
+for label_idx, samples in train_by_class.items():
+    if len(samples) < max_count:
+        oversampled = samples + random.choices(samples, k=max_count - len(samples))
+        train_balanced.extend(oversampled)
+    else:
+        train_balanced.extend(samples)
+
+random.shuffle(train_balanced)
+
+balanced_counts = Counter(l for _, l in train_balanced)
+print("\nBalanced class distribution:")
+for idx in sorted(balanced_counts):
+    print(f"  {CLASSES[idx]:25s}: {balanced_counts[idx]}")
+print(f"\nTrain: {len(train_balanced)}  Val: {len(val_all)}")
+
+# ── tf.data pipeline with heavy augmentation ──────────────────────────────────
 def decode_image(path):
-    raw   = tf.io.read_file(path)
-    image = tf.image.decode_image(raw, channels=3, expand_animations=False)
+    """Decode JPEG/PNG with explicit format handling for corrupt-header resilience."""
+    raw = tf.io.read_file(path)
+    # Try JPEG first (most common), fall back to PNG via decode_image
+    # decode_jpeg handles most files; decode_image catches the rest
+    image = tf.cond(
+        tf.io.is_jpeg(raw),
+        lambda: tf.image.decode_jpeg(raw, channels=3),
+        lambda: tf.image.decode_png(raw, channels=3),
+    )
+    image.set_shape([None, None, 3])
     image = tf.image.resize(image, [IMG_SIZE, IMG_SIZE])
     image = tf.cast(image, tf.float32) / 255.0
     return image
 
 def augment(image):
-    """Moderate augmentation to bridge PlantVillage → real phone photos."""
-    # Spatial
+    """Heavy augmentation to bridge PlantVillage → real-world phone photos."""
+    # ── Spatial transforms ──
     image = tf.image.random_flip_left_right(image)
     image = tf.image.random_flip_up_down(image)
     # Random 90° rotation
     k = tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32)
     image = tf.image.rot90(image, k)
-    # Random crop then resize back (simulates zoom / field-of-view variation)
-    crop_size = tf.random.uniform(shape=[], minval=int(IMG_SIZE * 0.75),
-                                  maxval=IMG_SIZE, dtype=tf.int32)
+    # Random crop 65-100% then resize back (zoom / framing variation)
+    crop_frac = tf.random.uniform(shape=[], minval=0.65, maxval=1.0)
+    crop_size = tf.cast(tf.cast(IMG_SIZE, tf.float32) * crop_frac, tf.int32)
     image = tf.image.random_crop(image, [crop_size, crop_size, 3])
     image = tf.image.resize(image, [IMG_SIZE, IMG_SIZE])
-    # Colour jitter (handles indoor/outdoor/different phone cameras)
-    image = tf.image.random_brightness(image, max_delta=0.25)
-    image = tf.image.random_contrast(image, lower=0.75, upper=1.25)
-    image = tf.image.random_saturation(image, lower=0.7, upper=1.3)
-    image = tf.image.random_hue(image, max_delta=0.05)
-    # Clip to valid range
+
+    # ── Color / HSV transforms ──
+    image = tf.image.random_brightness(image, max_delta=0.3)
+    image = tf.image.random_contrast(image, lower=0.7, upper=1.3)
+    image = tf.image.random_saturation(image, lower=0.6, upper=1.4)
+    image = tf.image.random_hue(image, max_delta=0.08)
+
+    # ── Gaussian noise (simulates camera sensor noise) ──
+    noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=0.03)
+    image = image + noise
+
     image = tf.clip_by_value(image, 0.0, 1.0)
     return image
 
@@ -134,15 +278,21 @@ def make_dataset(pairs, training=False):
     if training:
         ds = ds.map(lambda x, y: (augment(x), y),
                     num_parallel_calls=tf.data.AUTOTUNE)
-        ds = ds.shuffle(buffer_size=2048, seed=SEED)
+        ds = ds.shuffle(buffer_size=4096, seed=SEED)
     ds = ds.batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE)
     return ds
 
-ds_train = make_dataset(train_all, training=True)
-ds_val   = make_dataset(val_all,   training=False)
+ds_train = make_dataset(train_balanced, training=True)
+ds_val   = make_dataset(val_all, training=False)
 
-# ── Build model ───────────────────────────────────────────────────────────────
-print("\nBuilding MobileNetV2 model...")
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 2 — Architecture & Training
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("PHASE 2 — Architecture & Training")
+print("=" * 60)
+
+print("\nBuilding MobileNetV2 model (ImageNet pretrained)...")
 base_model = tf.keras.applications.MobileNetV2(
     input_shape=(IMG_SIZE, IMG_SIZE, 3),
     include_top=False,
@@ -151,13 +301,14 @@ base_model = tf.keras.applications.MobileNetV2(
 base_model.trainable = False
 
 inputs  = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
-# Rescale [0,1] → [-1,1] to match MobileNetV2 pretrained weight expectations
-x       = tf.keras.layers.Rescaling(scale=2.0, offset=-1.0)(inputs)
+x       = tf.keras.layers.Rescaling(scale=2.0, offset=-1.0)(inputs)  # [0,1]→[-1,1]
 x       = base_model(x, training=False)
 x       = tf.keras.layers.GlobalAveragePooling2D()(x)
 x       = tf.keras.layers.BatchNormalization()(x)
 x       = tf.keras.layers.Dense(256, activation="relu")(x)
-x       = tf.keras.layers.Dropout(0.4)(x)
+x       = tf.keras.layers.Dropout(0.5)(x)
+x       = tf.keras.layers.Dense(128, activation="relu")(x)
+x       = tf.keras.layers.Dropout(0.3)(x)
 outputs = tf.keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
 model   = tf.keras.Model(inputs, outputs)
 
@@ -168,94 +319,258 @@ model.compile(
 )
 model.summary()
 
-# ── Callbacks ─────────────────────────────────────────────────────────────────
-ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
+# ── Phase 2a: Train head (backbone frozen) ────────────────────────────────────
+# Fresh callbacks for Phase 2a
+ckpt_cb_a = tf.keras.callbacks.ModelCheckpoint(
     BEST_CKPT, monitor="val_accuracy", save_best_only=True, verbose=1,
 )
-reduce_lr_cb = tf.keras.callbacks.ReduceLROnPlateau(
+reduce_lr_cb_a = tf.keras.callbacks.ReduceLROnPlateau(
     monitor="val_loss", factor=0.5, patience=3, min_lr=1e-6, verbose=1,
 )
-early_stop_cb = tf.keras.callbacks.EarlyStopping(
-    monitor="val_accuracy", patience=7, restore_best_weights=True, verbose=1,
+early_stop_cb_a = tf.keras.callbacks.EarlyStopping(
+    monitor="val_accuracy", patience=8, restore_best_weights=True, verbose=1,
 )
+csv_logger_a = tf.keras.callbacks.CSVLogger(TRAINING_LOG_A, append=False)
 
-# ── Phase 1: train head ───────────────────────────────────────────────────────
-print(f"\nPhase 1 — training classifier head ({EPOCHS_HEAD} epochs)...")
+print(f"\nPhase 2a — Training classifier head ({EPOCHS_HEAD} epochs)...")
 model.fit(
     ds_train, epochs=EPOCHS_HEAD, validation_data=ds_val,
-    callbacks=[ckpt_cb, reduce_lr_cb, early_stop_cb],
+    callbacks=[ckpt_cb_a, reduce_lr_cb_a, early_stop_cb_a, csv_logger_a],
 )
 
-# ── Phase 2: fine-tune top 50 layers ─────────────────────────────────────────
-print(f"\nPhase 2 — fine-tuning top 50 layers ({EPOCHS_FINE} epochs)...")
+# ── Phase 2b: Fine-tune top layers at low LR ─────────────────────────────────
+# Fresh callbacks for Phase 2b — avoids stale patience counters / LR state
+ckpt_cb_b = tf.keras.callbacks.ModelCheckpoint(
+    BEST_CKPT, monitor="val_accuracy", save_best_only=True, verbose=1,
+)
+reduce_lr_cb_b = tf.keras.callbacks.ReduceLROnPlateau(
+    monitor="val_loss", factor=0.5, patience=4, min_lr=1e-7, verbose=1,
+)
+early_stop_cb_b = tf.keras.callbacks.EarlyStopping(
+    monitor="val_accuracy", patience=10, restore_best_weights=True, verbose=1,
+)
+csv_logger_b = tf.keras.callbacks.CSVLogger(TRAINING_LOG_B, append=False)
+
+print(f"\nPhase 2b — Fine-tuning top 60 layers ({EPOCHS_FINE} epochs, LR=1e-4)...")
 base_model.trainable = True
-for layer in base_model.layers[:-50]:
+for layer in base_model.layers[:-60]:
     layer.trainable = False
 
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(1e-5),
+    optimizer=tf.keras.optimizers.Adam(1e-4),
     loss="categorical_crossentropy",
     metrics=["accuracy"],
 )
 model.fit(
     ds_train, epochs=EPOCHS_FINE, validation_data=ds_val,
-    callbacks=[ckpt_cb, reduce_lr_cb, early_stop_cb],
+    callbacks=[ckpt_cb_b, reduce_lr_cb_b, early_stop_cb_b, csv_logger_b],
 )
 
-# Reload the best checkpoint from either phase
+# Reload best checkpoint
 if os.path.exists(BEST_CKPT):
-    print(f"\nLoading best checkpoint from {BEST_CKPT}...")
+    print(f"\nLoading best checkpoint: {BEST_CKPT}")
     model = tf.keras.models.load_model(BEST_CKPT)
 
+print(f"\nTraining logs saved to: {TRAINING_LOG_A} and {TRAINING_LOG_B}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 3 — Evaluation & Validation
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("PHASE 3 — Evaluation & Validation")
+print("=" * 60)
+
 val_loss, val_acc = model.evaluate(ds_val)
-print(f"\nFinal validation accuracy: {val_acc * 100:.1f}%")
-if val_acc < 0.93:
-    print("⚠️  Accuracy below 93% target — consider adding more data or tuning hyperparameters.")
+print(f"\nValidation accuracy: {val_acc * 100:.2f}%")
+
+# ── Confusion matrix & per-class metrics ──────────────────────────────────────
+# Single pass: collect predictions and labels together to avoid misalignment.
+print("\nGenerating confusion matrix...")
+y_true, y_pred = [], []
+for images, labels in ds_val:
+    preds = model(images, training=False).numpy()
+    y_true.extend(np.argmax(labels.numpy(), axis=1))
+    y_pred.extend(np.argmax(preds, axis=1))
+y_true = np.array(y_true)
+y_pred = np.array(y_pred)
+
+# Confusion matrix
+cm = np.zeros((NUM_CLASSES, NUM_CLASSES), dtype=int)
+for t, p in zip(y_true, y_pred):
+    cm[t][p] += 1
+
+print(f"\n{'':25s}", end="")
+for c in CLASSES:
+    print(f"{c:>15s}", end="")
+print()
+for i, row_label in enumerate(CLASSES):
+    print(f"{row_label:25s}", end="")
+    for j in range(NUM_CLASSES):
+        print(f"{cm[i][j]:15d}", end="")
+    print()
+
+# Per-class precision, recall, F1
+print(f"\n{'Class':25s} {'Precision':>10s} {'Recall':>10s} {'F1':>10s} {'Support':>10s}")
+print("-" * 65)
+for i, cls in enumerate(CLASSES):
+    tp = cm[i][i]
+    fp = sum(cm[j][i] for j in range(NUM_CLASSES)) - tp
+    fn = sum(cm[i]) - tp
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall    = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    support   = sum(cm[i])
+    print(f"{cls:25s} {precision:10.4f} {recall:10.4f} {f1:10.4f} {support:10d}")
+
+if val_acc >= TARGET_VAL_ACC:
+    print(f"\n✅  Validation accuracy {val_acc*100:.2f}% meets >{TARGET_VAL_ACC*100:.0f}% target!")
 else:
-    print("✅  Accuracy meets the ≥93% target.")
+    print(f"\n⚠️  Validation accuracy {val_acc*100:.2f}% below >{TARGET_VAL_ACC*100:.0f}% target.")
+    print("    Consider: more data, stronger augmentation, or more fine-tune epochs.")
 
-# ── Export TFLite ─────────────────────────────────────────────────────────────
-# No quantization → pure float32 model.
-# This is universally compatible with TFLite 2.9+ on Android.
-# Dynamic-range quantization triggers FULLY_CONNECTED op v12 which requires
-# TFLite 2.17+ to run — omitting it keeps the model at v4/v5 (runs anywhere).
-print("\nConverting to TFLite (float32, no quantization)...")
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 4 — TFLite Conversion & INT8 Quantization
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("PHASE 4 — TFLite Conversion & INT8 Quantization")
+print("=" * 60)
+
+# ── Representative dataset for INT8 calibration (stratified) ──────────────────
+# rep_by_class / rep_paths were built in Phase 1 before val_all was shuffled.
+print(f"\nUsing stratified representative dataset (~{REP_PER_CLASS} per class)...")
+print(f"  Collected {len(rep_paths)} calibration images across {NUM_CLASSES} classes")
+for i in range(NUM_CLASSES):
+    print(f"    {CLASSES[i]:25s}: {len(rep_by_class[i])}")
+
+def representative_dataset():
+    for path in rep_paths:
+        raw = open(path, "rb").read()
+        try:
+            img = tf.image.decode_jpeg(raw, channels=3)
+        except Exception:
+            img = tf.image.decode_png(raw, channels=3)
+        img = tf.image.resize(img, [IMG_SIZE, IMG_SIZE])
+        img = tf.cast(img, tf.float32) / 255.0
+        yield [np.expand_dims(img.numpy(), axis=0).astype(np.float32)]
+
+# ── Convert with INT8 quantization ────────────────────────────────────────────
+print("Converting to TFLite with INT8 quantization...")
 converter = tf.lite.TFLiteConverter.from_keras_model(model)
-tflite_model = converter.convert()
+converter.optimizations = [tf.lite.Optimize.DEFAULT]
+converter.representative_dataset = representative_dataset
+# Keep float32 input/output for easier Android integration
+converter.target_spec.supported_ops = [
+    tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
+    tf.lite.OpsSet.TFLITE_BUILTINS,
+]
+converter.inference_input_type = tf.float32
+converter.inference_output_type = tf.float32
 
-# ── Save Keras model (so you can re-export without retraining) ───────────────
-KERAS_MODEL_FILE = os.path.join(MODELS_DIR, "corn_disease_keras_model.keras")
-print(f"\nSaving Keras model to {KERAS_MODEL_FILE}...")
 try:
-    model.save(KERAS_MODEL_FILE)
-    print("Keras model saved.")
+    tflite_quant = converter.convert()
+    print(f"INT8 quantized model size: {len(tflite_quant) // 1024} KB")
 except Exception as e:
-    print(f"Warning: Could not save Keras model: {e}")
+    print(f"⚠️  INT8 quantization failed: {e}")
+    print("Falling back to float32 (no quantization)...")
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    tflite_quant = converter.convert()
+    print(f"Float32 model size: {len(tflite_quant) // 1024} KB")
 
-# Clean up temporary best-checkpoint file
-if os.path.exists(BEST_CKPT) and BEST_CKPT != KERAS_MODEL_FILE:
+# ── Validate quantized model accuracy on a sample ─────────────────────────────
+print(f"\nValidating quantized model accuracy (sample of {QUANT_VAL_SAMPLE})...")
+interpreter = tf.lite.Interpreter(model_content=tflite_quant)
+interpreter.allocate_tensors()
+inp_detail = interpreter.get_input_details()[0]
+out_detail = interpreter.get_output_details()[0]
+
+quant_correct = 0
+quant_total   = 0
+for images, labels in ds_val:
+    for i in range(images.shape[0]):
+        img = np.expand_dims(images[i].numpy(), axis=0).astype(np.float32)
+        interpreter.set_tensor(inp_detail['index'], img)
+        interpreter.invoke()
+        pred = interpreter.get_tensor(out_detail['index'])[0]
+        if np.argmax(pred) == np.argmax(labels[i].numpy()):
+            quant_correct += 1
+        quant_total += 1
+        if quant_total >= QUANT_VAL_SAMPLE:
+            break
+    if quant_total >= QUANT_VAL_SAMPLE:
+        break
+
+quant_acc = quant_correct / quant_total if quant_total > 0 else 0
+print(f"Quantized model accuracy: {quant_acc * 100:.2f}% ({quant_correct}/{quant_total})")
+
+if quant_acc >= TARGET_QUANT_ACC:
+    print(f"✅  Quantized accuracy meets >{TARGET_QUANT_ACC*100:.0f}% target!")
+else:
+    print(f"⚠️  Quantized accuracy {quant_acc*100:.2f}% below >{TARGET_QUANT_ACC*100:.0f}% target.")
+    print("    Falling back to float32 model...")
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    tflite_quant = converter.convert()
+    print(f"    Float32 model size: {len(tflite_quant) // 1024} KB")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Save outputs
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n" + "=" * 60)
+print("Saving outputs")
+print("=" * 60)
+
+# Save Keras model first
+print(f"\nSaving Keras model: {OUTPUT_KERAS}")
+keras_saved = False
+try:
+    model.save(OUTPUT_KERAS)
+    keras_saved = True
+    print("  Keras model saved.")
+except Exception as e:
+    print(f"  Warning: Could not save Keras model: {e}")
+
+# Only clean up checkpoint AFTER Keras save succeeds
+if keras_saved and os.path.exists(BEST_CKPT) and \
+        os.path.abspath(BEST_CKPT) != os.path.abspath(OUTPUT_KERAS):
     os.remove(BEST_CKPT)
-    print(f"Cleaned up temporary checkpoint: {BEST_CKPT}")
+    print(f"  Cleaned up checkpoint: {BEST_CKPT}")
+elif not keras_saved:
+    print(f"  ⚠️  Keeping checkpoint {BEST_CKPT} (Keras save failed)")
 
-with open(OUTPUT_MODEL, "wb") as f:
-    f.write(tflite_model)
-print(f"Saved: {OUTPUT_MODEL}  ({os.path.getsize(OUTPUT_MODEL)//1024} KB)")
+# Save TFLite
+with open(OUTPUT_TFLITE, "wb") as f:
+    f.write(tflite_quant)
+print(f"Saved: {OUTPUT_TFLITE}  ({os.path.getsize(OUTPUT_TFLITE) // 1024} KB)")
 
+# Save labels
 with open(OUTPUT_LABELS, "w") as f:
     for label in CLASSES:
         f.write(label + "\n")
 print(f"Saved: {OUTPUT_LABELS}")
 
-# ── Auto-copy to assets ───────────────────────────────────────────────────────
-import shutil
-assets_dir = os.path.join(os.path.dirname(__file__), "..", "mobile", "app", "src", "main", "assets")
-if os.path.isdir(assets_dir):
-    shutil.copy(OUTPUT_MODEL, os.path.join(assets_dir, "corn_disease_model.tflite"))
-    shutil.copy(OUTPUT_LABELS, os.path.join(assets_dir, "labels.txt"))
-    print(f"\n✅ Auto-copied both files to {assets_dir}/")
+# Auto-copy to Android assets
+if os.path.isdir(ASSETS_DIR):
+    shutil.copy(OUTPUT_TFLITE, os.path.join(ASSETS_DIR, "corn_disease_model.tflite"))
+    shutil.copy(OUTPUT_LABELS, os.path.join(ASSETS_DIR, "labels.txt"))
+    print(f"\n✅ Auto-copied to {ASSETS_DIR}/")
 else:
-    print(f"\n✅ Done! Copy manually to mobile/app/src/main/assets/")
+    print(f"\n⚠️  Assets dir not found. Copy manually to mobile/app/src/main/assets/")
 
-print("\nClass order:")
+# ── Summary ───────────────────────────────────────────────────────────────────
+print("\n" + "=" * 60)
+print("TRAINING COMPLETE — Summary")
+print("=" * 60)
+print(f"  Architecture   : MobileNetV2 (ImageNet pretrained)")
+print(f"  Input          : {IMG_SIZE}×{IMG_SIZE} RGB, normalized [0,1]")
+print(f"  Classes        : {NUM_CLASSES} (4 corn + Invalid)")
+print(f"  Val accuracy   : {val_acc * 100:.2f}%")
+print(f"  Quant accuracy : {quant_acc * 100:.2f}%")
+print(f"  Model size     : {os.path.getsize(OUTPUT_TFLITE) // 1024} KB")
+print(f"  Training logs  : {TRAINING_LOG_A}")
+print(f"                   {TRAINING_LOG_B}")
+print(f"\n  Class order (must match labels.txt & Android):")
 for i, c in enumerate(CLASSES):
-    print(f"  {i} - {c}")
+    print(f"    {i} - {c}")
+print(f"\n  Mobile pipeline:")
+print(f"    1. Green pixel ratio check    (fast, no model)")
+print(f"    2. TFLite inference            (this model, 5 classes)")
+print(f"    3. Reject if: class=='Invalid' OR confidence<70% OR entropy>0.8")

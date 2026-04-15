@@ -19,18 +19,21 @@ import java.nio.channels.FileChannel
 /**
  * Corn Disease Classifier using TensorFlow Lite.
  *
- * Expected model: corn_disease_model.tflite in app/src/main/assets/
+ * Single-model pipeline (5 classes: 4 corn diseases + "Invalid"):
  *   - Input:  [1, 224, 224, 3]  float32, values normalized to [0.0, 1.0]
- *   - Output: [1, N]             float32 softmax probabilities, N = number of classes
+ *   - Output: [1, 5]             float32 softmax probabilities
  *
- * Expected labels: labels.txt in app/src/main/assets/
- *   - One label per line, in the same order as model output indices
+ * OOD rejection gates (applied by the caller via [Result.isValid]):
+ *   1. Predicted class == "Invalid"  → reject
+ *   2. Top confidence < 70%          → reject
+ *   3. Shannon entropy > 0.8         → reject
  *
- * To obtain a compatible model:
- *   1. Train or fine-tune a MobileNetV2/EfficientNet model on a corn disease dataset
- *      (e.g., PlantVillage Corn subset on Kaggle) with the classes matching labels.txt
- *   2. Export to TFLite format with the exact input/output shape above
- *   3. Place the .tflite file in app/src/main/assets/
+ * Labels (labels.txt, must match training order):
+ *   0 - Common Rust
+ *   1 - Gray Leaf Spot
+ *   2 - Healthy
+ *   3 - Invalid
+ *   4 - Northern Leaf Blight
  *
  * GPU acceleration is attempted automatically and falls back to CPU if unavailable.
  */
@@ -41,9 +44,19 @@ class CornDiseaseClassifier(private val context: Context) {
         private const val LABELS_FILE = "labels.txt"
         private const val INPUT_SIZE = 224  // pixels (width & height)
         private const val TAG = "CornClassifier"
+
+        // OOD gate thresholds — must match test_tflite.py
+        private const val CONFIDENCE_MIN = 0.70f
+        private const val ENTROPY_MAX    = 0.80f
+        private const val INVALID_LABEL  = "Invalid"
     }
 
-    data class Result(val label: String, val confidence: Float)
+    data class Result(
+        val label: String,
+        val confidence: Float,
+        val entropy: Float,
+        val isValid: Boolean
+    )
 
     private var interpreter: Interpreter? = null
     private var labels: List<String> = emptyList()
@@ -93,18 +106,15 @@ class CornDiseaseClassifier(private val context: Context) {
     // -----------------------------------------------------------------------
 
     /**
-     * Classify a Bitmap — Stage 2 of the two-model pipeline.
+     * Classify a Bitmap — single-model pipeline with OOD gates.
      *
-     * This method assumes the image has ALREADY been validated as a corn leaf by
-     * CornLeafDetector. It classifies which corn disease is present.
+     * The model outputs 5 classes (4 corn diseases + "Invalid").
+     * The result includes [isValid] which is false when any OOD gate triggers:
+     *   - predicted class is "Invalid"
+     *   - top confidence < 70%
+     *   - Shannon entropy > 0.8
      *
-     * Supports both model variants:
-     *   - 4-class model (labels.txt has 4 entries): probabilities used directly.
-     *   - 5-class legacy model (labels.txt includes "Other"): "Other" is excluded
-     *     and the remaining probabilities are renormalized so confidence reflects
-     *     certainty among corn diseases only (e.g. 0.50/0.70 = 71%).
-     *
-     * Returns null if the model is not ready or corn-class confidence is too low.
+     * Returns null only if the model is not ready or inference fails.
      * Must be called from a background thread.
      */
     fun classify(bitmap: Bitmap): Result? {
@@ -143,8 +153,7 @@ class CornDiseaseClassifier(private val context: Context) {
             byteBuffer.putFloat((pixel          and 0xFF) / 255.0f)  // B
         }
 
-        // Run inference — use the model's actual output size, not labels.size,
-        // so this works whether the deployed model has 4 or 5 output classes.
+        // Run inference
         val numModelOutputs = interp.getOutputTensor(0).shape()[1]
         val outputArray = Array(1) { FloatArray(numModelOutputs) }
         interp.run(byteBuffer, outputArray)
@@ -157,34 +166,22 @@ class CornDiseaseClassifier(private val context: Context) {
 
         if (scores.isEmpty()) return null
 
-        // Find the "Other" class index (present in legacy 5-class model; -1 if not found)
-        val otherIdx = labels.indexOfFirst { it.equals("Other", ignoreCase = true) }
+        // Find best class
+        val bestIdx = scores.indices.maxByOrNull { scores[it] } ?: return null
+        val label = labels.getOrElse(bestIdx) { "Unknown" }
+        val confidence = scores[bestIdx]
 
-        // Build a list of (index, score) pairs for corn-disease classes only
-        val cornScores = scores.indices
-            .filter { it != otherIdx }
-            .map { it to scores[it] }
+        // Compute Shannon entropy for uncertainty detection
+        val ent = shannonEntropy(scores)
 
-        if (cornScores.isEmpty()) return null
+        // OOD gates
+        val isInvalid = label.equals(INVALID_LABEL, ignoreCase = true)
+        val isValid = !isInvalid && confidence >= CONFIDENCE_MIN && ent <= ENTROPY_MAX
 
-        // Renormalize so confidence is relative to corn classes only
-        val cornSum = cornScores.sumOf { it.second.toDouble() }.toFloat()
-        val bestCorn = cornScores.maxByOrNull { it.second } ?: return null
+        android.util.Log.d(TAG, "Predicted: $label @ ${"%.3f".format(confidence)}, " +
+            "entropy=${"%.3f".format(ent)}, isValid=$isValid")
 
-        val label = labels.getOrElse(bestCorn.first) { "Unknown" }
-        // Renormalized confidence: how sure the model is among the 4 corn diseases
-        val confidence = if (cornSum > 0f) bestCorn.second / cornSum else bestCorn.second
-
-        android.util.Log.d(TAG, "Predicted (renorm): $label @ ${"%.3f".format(confidence)} (raw=${bestCorn.second})")
-
-        // Require at least 15% renormalized confidence — the leaf detector already
-        // confirmed this is a corn leaf, so we just need a clear winner
-        if (confidence < 0.15f) {
-            android.util.Log.d(TAG, "→ renormalized confidence too low ($confidence), returning null")
-            return null
-        }
-
-        return Result(label, confidence)
+        return Result(label, confidence, ent, isValid)
     }
 
     /** Classify from a JPEG/PNG file on disk. */
@@ -223,6 +220,17 @@ class CornDiseaseClassifier(private val context: Context) {
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
+
+    /** Shannon entropy of a probability distribution. Higher = more uncertain. */
+    private fun shannonEntropy(probs: FloatArray): Float {
+        var h = 0.0
+        for (p in probs) {
+            if (p > 1e-10f) {
+                h -= p * Math.log(p.toDouble())
+            }
+        }
+        return h.toFloat()
+    }
 
     private fun loadModelBuffer(): MappedByteBuffer {
         val afd = context.assets.openFd(MODEL_FILE)

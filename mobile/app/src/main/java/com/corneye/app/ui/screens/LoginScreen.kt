@@ -226,18 +226,23 @@ fun LoginScreen(navController: NavController) {
                                                     var found = false
                                                     var userName = "Farmer"
                                                     var foundUserId = ""
+                                                    var accountInactive = false
                                                     for (child in snapshot.children) {
                                                         val userPass = child.child("password").getValue(String::class.java)
                                                         if (userPass == password) {
                                                             found = true
                                                             userName = child.child("fullname").getValue(String::class.java) ?: "Farmer"
                                                             foundUserId = child.key ?: ""
+                                                            val status = child.child("status").getValue(String::class.java) ?: "active"
+                                                            accountInactive = status != "active"
                                                             break
                                                         }
                                                     }
 
                                                     isLoading = false
-                                                    if (found) {
+                                                    if (found && accountInactive) {
+                                                        errorMessage = "Your account has been deactivated. Please contact the administrator."
+                                                    } else if (found) {
                                                         scope.launch {
                                                             UserPreferences.saveUser(context, foundUserId, userName, trimmedEmail)
                                                         }

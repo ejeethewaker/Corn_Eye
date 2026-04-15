@@ -1,103 +1,52 @@
 // Corn Leaf Detector
-// Validates whether a photo contains a corn (maize) leaf before disease classification.
+// Fast green pixel pre-filter — rejects obviously non-plant images before model inference.
 package com.corneye.app.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
-import org.tensorflow.lite.support.common.FileUtil
-import java.io.FileInputStream
-import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
 
 /**
- * Corn Leaf Detector — Stage 1 of the two-model pipeline.
+ * Corn Leaf Detector — green pixel ratio pre-filter (Stage 1).
  *
- * Uses corn_leaf_detector.tflite (the 5-class model: Common Rust, Gray Leaf Spot,
- * Healthy, Northern Leaf Blight, Other) to decide whether the image contains a
- * corn leaf before running the disease classifier.
+ * Single-model pipeline:
+ *   1. CornLeafDetector.hasPlantColors() — this class (fast color check, no model)
+ *   2. CornDiseaseClassifier.classify()  — TFLite model with OOD gates
  *
- * Decision rule:
- *   - Sum all non-"Other" class probabilities.
- *   - If that sum >= CORN_THRESHOLD (0.35) → it IS a corn leaf.
- *   - If the "Other" class alone has probability >= OTHER_REJECT_THRESHOLD (0.65) → NOT a corn leaf.
- *   - Otherwise fall back to the sum check.
+ * No TFLite model is loaded. This class only checks whether the image has
+ * enough green/plant-like pixels to be worth sending to the classifier.
  *
- * When you have a dedicated binary leaf detection model, simply replace
- * corn_leaf_detector.tflite in assets; this class will continue to work as long
- * as the "Other" label remains present in leaf_labels.txt.
+ * Three checks must ALL pass:
+ *   1. Green pixel ratio ≥ 25%  — at least 1/4 of sampled pixels are green-hued
+ *   2. Green saturation  ≥ 25%  — those green pixels have vivid color (not washed out)
+ *   3. Green dominance   ≥ 38%  — green channel is strongest overall
  */
 class CornLeafDetector(private val context: Context) {
 
     companion object {
-        private const val MODEL_FILE  = "corn_leaf_detector.tflite"
-        private const val LABELS_FILE = "leaf_labels.txt"
-        private const val INPUT_SIZE  = 224
-        private const val TAG         = "CornLeafDetector"
+        private const val TAG = "CornLeafDetector"
+        private const val INPUT_SIZE = 224
 
-        // Sum of all corn-disease class probabilities must exceed this to accept as corn leaf
-        private const val CORN_THRESHOLD         = 0.35f
-        // If "Other" probability alone exceeds this, reject without further checks
-        private const val OTHER_REJECT_THRESHOLD = 0.65f
+        // ── Color pre-check constants ──
+        private const val MIN_GREEN_RATIO        = 0.25f
+        private const val MIN_GREEN_SATURATION   = 0.25f
+        private const val MIN_GREEN_DOMINANCE    = 0.38f
     }
 
-    private var interpreter: Interpreter? = null
-    private var labels: List<String>      = emptyList()
-    private var gpuDelegate: GpuDelegate? = null
-    private var isReady                   = false
-
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
-
-    fun initialize(): Boolean {
-        if (isReady) return true
-        return try {
-            val modelBuffer = loadModelBuffer()
-            val options     = buildInterpreterOptions()
-            interpreter = Interpreter(modelBuffer, options)
-            labels      = FileUtil.loadLabels(context, LABELS_FILE)
-            isReady     = labels.isNotEmpty()
-            android.util.Log.d(TAG, "Initialized OK — labels: $labels")
-            isReady
-        } catch (e: IOException) {
-            android.util.Log.e(TAG, "Init IO error: ${e.message}", e)
-            false
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "Init error: ${e.message}", e)
-            false
-        }
-    }
-
-    fun close() {
-        interpreter?.close()
-        interpreter = null
-        gpuDelegate?.close()
-        gpuDelegate = null
-        isReady = false
-    }
+    // No model to load — always ready
+    fun initialize(): Boolean = true
+    fun close() { /* no-op */ }
 
     // -----------------------------------------------------------------------
     // Detection entry-points
     // -----------------------------------------------------------------------
 
     /**
-     * Returns true if the bitmap appears to be a corn leaf.
-     * Must be called from a background thread.
+     * Returns true if the bitmap has enough green/plant-like colors.
+     * Fast check — runs on pixel data only, no model inference.
      */
     fun isCornLeaf(bitmap: Bitmap): Boolean {
-        if (!isReady) {
-            android.util.Log.e(TAG, "isCornLeaf() called but model not ready — treating as corn to avoid false rejections")
-            return true
-        }
-        val interp = interpreter ?: return true
-
         val softBitmap: Bitmap = if (bitmap.config == Bitmap.Config.HARDWARE ||
                                      bitmap.config != Bitmap.Config.ARGB_8888) {
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
@@ -107,46 +56,10 @@ class CornLeafDetector(private val context: Context) {
         val argbScaled: Bitmap = if (scaled.config != Bitmap.Config.ARGB_8888)
             scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
 
-        val byteBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3)
-        byteBuffer.order(ByteOrder.nativeOrder())
         val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
         argbScaled.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
-        for (pixel in pixels) {
-            byteBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)
-            byteBuffer.putFloat(((pixel shr 8)  and 0xFF) / 255.0f)
-            byteBuffer.putFloat((pixel          and 0xFF) / 255.0f)
-        }
 
-        val outputArray = Array(1) { FloatArray(labels.size) }
-        interp.run(byteBuffer, outputArray)
-        val scores = outputArray[0]
-
-        val scoresLog = scores.mapIndexed { i, s ->
-            "${labels.getOrElse(i) { "?" }}=${"%.3f".format(s)}"
-        }.joinToString(", ")
-        android.util.Log.d(TAG, "LeafDetect scores: [$scoresLog]")
-
-        // Find the "Other" label index
-        val otherIdx = labels.indexOfFirst { it.equals("Other", ignoreCase = true) }
-
-        // If "Other" probability is very high, definitely not a corn leaf
-        if (otherIdx >= 0 && scores.getOrElse(otherIdx) { 0f } >= OTHER_REJECT_THRESHOLD) {
-            android.util.Log.d(TAG, "→ Other probability ${scores[otherIdx]} >= $OTHER_REJECT_THRESHOLD, NOT a corn leaf")
-            return false
-        }
-
-        // Sum all non-"Other" probabilities
-        var cornSum = 0f
-        for (i in scores.indices) {
-            if (i != otherIdx) {
-                cornSum += scores[i]
-            }
-        }
-        android.util.Log.d(TAG, "→ Corn class probability sum: ${"%.3f".format(cornSum)}")
-
-        val isCorn = cornSum >= CORN_THRESHOLD
-        android.util.Log.d(TAG, "→ isCornLeaf = $isCorn")
-        return isCorn
+        return hasPlantLikeColors(pixels)
     }
 
     fun isCornLeafFromFile(file: java.io.File): Boolean {
@@ -173,24 +86,78 @@ class CornLeafDetector(private val context: Context) {
     // Private helpers
     // -----------------------------------------------------------------------
 
-    private fun loadModelBuffer(): MappedByteBuffer {
-        val afd = context.assets.openFd(MODEL_FILE)
-        return FileInputStream(afd.fileDescriptor).channel.map(
-            FileChannel.MapMode.READ_ONLY,
-            afd.startOffset,
-            afd.declaredLength
-        )
-    }
+    /**
+     * Multi-layer color sanity check to reject non-plant images.
+     *
+     * Three checks must ALL pass:
+     * 1. Green pixel ratio: ≥25% of sampled pixels are in the green/yellow-green hue range
+     *    with meaningful saturation (≥20%) and brightness (≥10%). This rejects obviously
+     *    non-green images.
+     * 2. Green saturation quality: the average saturation of those green pixels must be
+     *    ≥25%. Real corn leaves have vivid greens; screen/monitor light is washed out.
+     * 3. Green channel dominance: across ALL pixels, the green channel must be the
+     *    strongest on average (G / (R+G+B) ≥ 0.38). Corn leaf photos are green-dominant;
+     *    indoor scenes with mixed colors are not.
+     *
+     * Uses every 4th pixel for speed (~12,500 samples on 224×224).
+     */
+    private fun hasPlantLikeColors(pixels: IntArray): Boolean {
+        val hsv = FloatArray(3)
+        var greenCount = 0
+        var greenSatSum = 0f
+        var sampledCount = 0
+        var totalR = 0L
+        var totalG = 0L
+        var totalB = 0L
 
-    private fun buildInterpreterOptions(): Interpreter.Options {
-        val options = Interpreter.Options().apply { numThreads = 4 }
-        return try {
-            gpuDelegate = GpuDelegate()
-            options.addDelegate(gpuDelegate!!)
-            options
-        } catch (t: Throwable) {
-            gpuDelegate = null
-            options
+        for (i in pixels.indices step 4) {
+            val pixel = pixels[i]
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+
+            totalR += r
+            totalG += g
+            totalB += b
+            sampledCount++
+
+            android.graphics.Color.RGBToHSV(r, g, b, hsv)
+
+            // Hue 25-165 covers yellow-green through green (corn leaf range)
+            // Saturation >= 0.20 excludes washed-out grays/whites/screen light
+            // Value >= 0.10 excludes very dark pixels
+            if (hsv[0] in 25f..165f && hsv[1] >= 0.20f && hsv[2] >= 0.10f) {
+                greenCount++
+                greenSatSum += hsv[1]
+            }
         }
+
+        if (sampledCount == 0) return false
+
+        val greenRatio = greenCount.toFloat() / sampledCount
+        val avgGreenSat = if (greenCount > 0) greenSatSum / greenCount else 0f
+        val rgbSum = (totalR + totalG + totalB).toFloat()
+        val greenDominance = if (rgbSum > 0f) totalG.toFloat() / rgbSum else 0f
+
+        android.util.Log.d(TAG, "Color pre-check: greenRatio=${"%.3f".format(greenRatio)} " +
+            "($greenCount/$sampledCount, need>=$MIN_GREEN_RATIO), " +
+            "avgGreenSat=${"%.3f".format(avgGreenSat)} (need>=$MIN_GREEN_SATURATION), " +
+            "greenDominance=${"%.3f".format(greenDominance)} (need>=$MIN_GREEN_DOMINANCE)")
+
+        if (greenRatio < MIN_GREEN_RATIO) {
+            android.util.Log.d(TAG, "→ FAIL: not enough green pixels")
+            return false
+        }
+        if (avgGreenSat < MIN_GREEN_SATURATION) {
+            android.util.Log.d(TAG, "→ FAIL: green pixels are not saturated enough (screen/artificial light?)")
+            return false
+        }
+        if (greenDominance < MIN_GREEN_DOMINANCE) {
+            android.util.Log.d(TAG, "→ FAIL: green channel not dominant overall")
+            return false
+        }
+
+        android.util.Log.d(TAG, "→ PASS: image looks plant-like")
+        return true
     }
 }
