@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
-import { ref, get } from 'firebase/database';
+import { ref, get, onValue } from 'firebase/database';
 import './Users.css';
 import './Dashboard.css';
 
@@ -21,51 +21,49 @@ function Users() {
   const [adminInitials, setAdminInitials] = useState('');
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load admin profile for sidebar
-        const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
-        const adminsRef = ref(database, 'admins');
-        const adminsSnap = await get(adminsRef);
-        if (adminsSnap.exists()) {
-          const admins = adminsSnap.val();
-          const matched = Object.values(admins).find((a) => a.email === storedEmail);
-          if (matched) {
-            const name = matched.fullName || 'Admin';
-            setAdminName(name);
-            setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
-          }
+    // One-time admin profile load
+    const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+    get(ref(database, 'admins')).then((snap) => {
+      if (snap.exists()) {
+        const matched = Object.values(snap.val()).find((a) => a.email === storedEmail);
+        if (matched) {
+          const name = matched.fullName || 'Admin';
+          setAdminName(name);
+          setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
         }
-
-        // Load farmers list
-        const farmersRef = ref(database, 'farmers');
-        const snapshot = await get(farmersRef);
-        if (snapshot.exists()) {
-          const farmersData = snapshot.val();
-          const farmersList = Object.keys(farmersData).map((key, index) => {
-            const farmer = farmersData[key];
-            const name = farmer.fullname || 'Unknown';
-            const initials = getInitials(name);
-            const rawStatus = farmer.status || 'active';
-            const status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
-            const rawPhoto = farmer.profile_photo_url || null;
-            return {
-              id: key,
-              name: name,
-              email: farmer.email_address || '',
-              status: status,
-              avatar: initials,
-              avatarBg: avatarColors[index % avatarColors.length],
-              photoUrl: rawPhoto ? `data:image/jpeg;base64,${rawPhoto}` : null,
-            };
-          });
-          setUsers(farmersList);
-        }
-      } catch (err) {
-        console.error('Failed to load users:', err);
       }
+    }).catch((err) => console.error('Failed to load admin:', err));
+
+    // Real-time farmer list listener
+    const unsubFarmers = onValue(ref(database, 'farmers'), (snapshot) => {
+      if (snapshot.exists()) {
+        const farmersData = snapshot.val();
+        const farmersList = Object.keys(farmersData).map((key, index) => {
+          const farmer = farmersData[key];
+          const name = farmer.fullname || 'Unknown';
+          const initials = getInitials(name);
+          const rawStatus = farmer.status || 'active';
+          const status = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase();
+          const rawPhoto = farmer.profile_photo_url || null;
+          return {
+            id: key,
+            name: name,
+            email: farmer.email_address || '',
+            status: status,
+            avatar: initials,
+            avatarBg: avatarColors[index % avatarColors.length],
+            photoUrl: rawPhoto ? `data:image/jpeg;base64,${rawPhoto}` : null,
+          };
+        });
+        setUsers(farmersList);
+      } else {
+        setUsers([]);
+      }
+    });
+
+    return () => {
+      unsubFarmers();
     };
-    loadData();
   }, []);
 
   const filteredUsers = users.filter(
@@ -96,7 +94,7 @@ function Users() {
           </div>
 
           <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
-            <div className="user-avatar">{adminInitials || '?'}</div>
+            <div className="user-avatar">{adminInitials || 'A'}</div>
             <div className="user-info">
               <span className="user-name">{adminName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>

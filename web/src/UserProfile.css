@@ -182,21 +182,6 @@
   color: #e53935;
 }
 
-.up-deactivate-btn {
-  padding: 14px 36px;
-  font-size: 17px;
-  font-weight: 700;
-  color: #fff;
-  background-color: #e53935;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.up-deactivate-btn:hover {
-  background-color: #c62828;
-}
 
 /* ── Statistics ── */
 .up-stats-title {

@@ -94,13 +94,6 @@ function UserProfile() {
     navigate('/');
   };
 
-  const handleDeactivate = () => {
-    setIsActive(false);
-    if (id) {
-      update(ref(database, `farmers/${id}`), { status: 'inactive' });
-    }
-  };
-
   const handleToggle = () => {
     const newStatus = !isActive;
     setIsActive(newStatus);
@@ -257,9 +250,6 @@ function UserProfile() {
               </span>
             </div>
           </div>
-          <button className="up-deactivate-btn" onClick={handleDeactivate}>
-            Deactivate
-          </button>
         </div>
 
         {/* Statistics */}
