@@ -27,6 +27,9 @@ import androidx.navigation.NavController
 import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
 
 @Composable
 fun FullReportScreen(
@@ -42,23 +45,27 @@ fun FullReportScreen(
     val confidencePercent = (confidence * 100).toInt()
     val diseaseData = remember(diseaseName) { getFullReportDiseaseData(diseaseName) }
 
-    // Load scanned image from Firebase using scanId
+    // Real-time listener for scanned image
     var scanImageBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(scanId) {
-        if (scanId.isNotEmpty()) {
-            FirebaseHelper.analysisResultsRef().child(scanId).child("image_url")
-                .get().addOnSuccessListener { snapshot ->
-                    val base64 = snapshot.getValue(String::class.java)
-                    if (!base64.isNullOrEmpty()) {
-                        try {
-                            val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
-                            scanImageBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        } catch (e: Exception) {
-                            android.util.Log.e("FullReportScreen", "Failed to decode image: ${e.message}")
-                        }
+    DisposableEffect(scanId) {
+        if (scanId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val base64 = snapshot.getValue(String::class.java)
+                if (!base64.isNullOrEmpty()) {
+                    try {
+                        val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                        scanImageBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } catch (e: Exception) {
+                        android.util.Log.e("FullReportScreen", "Failed to decode image: ${e.message}")
                     }
                 }
+            }
+            override fun onCancelled(error: DatabaseError) {}
         }
+        val ref = FirebaseHelper.analysisResultsRef().child(scanId).child("image_url")
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     Column(

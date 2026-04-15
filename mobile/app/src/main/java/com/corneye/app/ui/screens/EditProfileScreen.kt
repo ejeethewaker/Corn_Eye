@@ -37,6 +37,9 @@ import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 import android.util.Base64
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -113,23 +116,26 @@ fun EditProfileScreen(navController: NavController) {
         ActivityResultContracts.TakePicture()
     ) { success: Boolean -> if (success) cameraUri?.let { uploadPhoto(it) } }
 
-    // Load profile from Firebase
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
-            FirebaseHelper.farmersRef().child(userId).get()
-                .addOnSuccessListener { snapshot ->
-                    if (snapshot.exists()) {
-                        fullName = snapshot.child("fullname").getValue(String::class.java) ?: ""
-                        email = snapshot.child("email_address").getValue(String::class.java) ?: ""
-                        phone = snapshot.child("phone_num").getValue(String::class.java) ?: ""
-                        location = snapshot.child("farm_location").getValue(String::class.java) ?: ""
-                        farmSize = snapshot.child("farm_area").getValue(String::class.java) ?: ""
-                        photoUrl = snapshot.child("profile_photo_url").getValue(String::class.java) ?: ""
-                    }
-                    isLoading = false
+    // Real-time listener for profile data
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (snapshot.exists()) {
+                    fullName = snapshot.child("fullname").getValue(String::class.java) ?: ""
+                    email = snapshot.child("email_address").getValue(String::class.java) ?: ""
+                    phone = snapshot.child("phone_num").getValue(String::class.java) ?: ""
+                    location = snapshot.child("farm_location").getValue(String::class.java) ?: ""
+                    farmSize = snapshot.child("farm_area").getValue(String::class.java) ?: ""
+                    photoUrl = snapshot.child("profile_photo_url").getValue(String::class.java) ?: ""
                 }
-                .addOnFailureListener { isLoading = false }
+                isLoading = false
+            }
+            override fun onCancelled(error: DatabaseError) { isLoading = false }
         }
+        val ref = FirebaseHelper.farmersRef().child(userId)
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     val initials = fullName.split(" ")

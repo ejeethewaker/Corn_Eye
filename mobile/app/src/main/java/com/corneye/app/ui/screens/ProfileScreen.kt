@@ -50,39 +50,49 @@ fun ProfileScreen(navController: NavController) {
     var weeklyScans by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Load farmer profile from Firebase
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
-            FirebaseHelper.farmersRef().child(userId).get()
-                .addOnSuccessListener { snapshot ->
-                    if (snapshot.exists()) {
-                        fullName = snapshot.child("fullname").getValue(String::class.java) ?: ""
-                        email = snapshot.child("email_address").getValue(String::class.java) ?: ""
-                        phone = snapshot.child("phone_num").getValue(String::class.java) ?: ""
-                        location = snapshot.child("farm_location").getValue(String::class.java) ?: ""
-                        farmSize = snapshot.child("farm_area").getValue(String::class.java) ?: ""
-                    }
-                    isLoading = false
+    // Real-time listener for farmer profile and scan counts
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val farmerListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (snapshot.exists()) {
+                    fullName = snapshot.child("fullname").getValue(String::class.java) ?: ""
+                    email = snapshot.child("email_address").getValue(String::class.java) ?: ""
+                    phone = snapshot.child("phone_num").getValue(String::class.java) ?: ""
+                    location = snapshot.child("farm_location").getValue(String::class.java) ?: ""
+                    farmSize = snapshot.child("farm_area").getValue(String::class.java) ?: ""
                 }
-                .addOnFailureListener { isLoading = false }
+                isLoading = false
+            }
+            override fun onCancelled(error: DatabaseError) { isLoading = false }
+        }
+        val farmerRef = FirebaseHelper.farmersRef().child(userId)
+        farmerRef.addValueEventListener(farmerListener)
 
-            // Load scan counts from analysis_results
-            FirebaseHelper.analysisResultsRef().get()
-                .addOnSuccessListener { snapshot ->
-                    var total = 0
-                    var weekly = 0
-                    val oneWeekAgo = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L
-                    snapshot.children.forEach { child ->
-                        val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
-                        if (scanUserId == userId) {
-                            total++
-                            val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
-                            if (timeScanned >= oneWeekAgo) weekly++
-                        }
+        val scansListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                var total = 0
+                var weekly = 0
+                val oneWeekAgo = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L
+                snapshot.children.forEach { child ->
+                    val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                    if (scanUserId == userId) {
+                        total++
+                        val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
+                        if (timeScanned >= oneWeekAgo) weekly++
                     }
-                    totalScans = total
-                    weeklyScans = weekly
                 }
+                totalScans = total
+                weeklyScans = weekly
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        val scansRef = FirebaseHelper.analysisResultsRef()
+        scansRef.addValueEventListener(scansListener)
+
+        onDispose {
+            farmerRef.removeEventListener(farmerListener)
+            scansRef.removeEventListener(scansListener)
         }
     }
 
