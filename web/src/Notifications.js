@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
-import { ref, get, update } from 'firebase/database';
+import { ref, get, update, onValue } from 'firebase/database';
 import './Notifications.css';
 import './Dashboard.css';
 
@@ -20,12 +20,24 @@ function getTimeAgo(timestamp) {
   return `${days} days ago`;
 }
 
+function formatTimestamp(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+}
+
 function Notifications() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('all');
   const [notifications, setNotifications] = useState([]);
   const [adminName, setAdminName] = useState('');
   const [adminInitials, setAdminInitials] = useState('');
+  const [selectedNotif, setSelectedNotif] = useState(null);
+  const [farmerName, setFarmerName] = useState('');
+  const [scanImage, setScanImage] = useState(null);
 
   const markAsRead = (notifId) => {
     setNotifications((prev) =>
@@ -34,48 +46,67 @@ function Notifications() {
     update(ref(database, `notifications/${notifId}`), { is_read: true });
   };
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load admin profile for sidebar
-        const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
-        const adminsRef = ref(database, 'admins');
-        const adminsSnap = await get(adminsRef);
-        if (adminsSnap.exists()) {
-          const admins = adminsSnap.val();
-          const matched = Object.values(admins).find((a) => a.email === storedEmail);
-          if (matched) {
-            const name = matched.fullName || 'Admin';
-            setAdminName(name);
-            setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
-          }
-        }
+  const openNotifDetail = (notif) => {
+    if (!notif.read) markAsRead(notif.id);
+    setSelectedNotif(notif);
+    setFarmerName('');
+    setScanImage(null);
+    if (notif.farmerId) {
+      get(ref(database, `farmers/${notif.farmerId}/fullname`)).then((snap) => {
+        if (snap.exists()) setFarmerName(snap.val());
+      }).catch(() => {});
+    }
+    if (notif.analysisId) {
+      get(ref(database, `analysis_results/${notif.analysisId}/image_url`)).then((snap) => {
+        if (snap.exists()) setScanImage(snap.val());
+      }).catch(() => {});
+    }
+  };
 
-        // Load notifications
-        const notifRef = ref(database, 'notifications');
-        const snapshot = await get(notifRef);
-        if (snapshot.exists()) {
-          const data = snapshot.val();
-          const notifList = Object.keys(data).map((key) => {
-            const n = data[key];
-            return {
-              id: key,
-              title: n.notif_title || '',
-              description: n.notif_message || '',
-              type: n.notif_type || 'scan',
-              time: getTimeAgo(n.timestamp || n.time_scanned || null),
-              timestamp: n.timestamp || n.time_scanned || 0,
-              read: n.is_read || false,
-            };
-          });
-          const sorted = [...notifList].sort((a, b) => b.timestamp - a.timestamp);
-          setNotifications(sorted);
+  useEffect(() => {
+    // One-time admin profile load
+    const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+    get(ref(database, 'admins')).then((snap) => {
+      if (snap.exists()) {
+        const matched = Object.values(snap.val()).find((a) => a.email === storedEmail);
+        if (matched) {
+          const name = matched.fullName || 'Admin';
+          setAdminName(name);
+          setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
         }
-      } catch (err) {
-        console.error('Failed to load notifications:', err);
       }
+    }).catch((err) => console.error('Failed to load admin:', err));
+
+    // Real-time notifications listener
+    const unsubNotifs = onValue(ref(database, 'notifications'), (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        const notifList = Object.keys(data).map((key) => {
+          const n = data[key];
+          return {
+            id: key,
+            title: n.notif_title || '',
+            description: n.notif_message || '',
+            type: n.notif_type || 'scan',
+            time: getTimeAgo(n.timestamp || n.time_scanned || null),
+            timestamp: n.timestamp || n.time_scanned || 0,
+            read: n.is_read || false,
+            farmerId: n.farmer_id || '',
+            analysisId: n.analysis_id || '',
+            analysisLabel: n.analysis_label || '',
+            confidence: n.confidence_score || null,
+          };
+        });
+        const sorted = [...notifList].sort((a, b) => b.timestamp - a.timestamp);
+        setNotifications(sorted);
+      } else {
+        setNotifications([]);
+      }
+    });
+
+    return () => {
+      unsubNotifs();
     };
-    loadData();
   }, []);
 
   const allCount = notifications.length;
@@ -108,7 +139,7 @@ function Notifications() {
           </div>
 
           <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
-            <div className="user-avatar">{adminInitials || '?'}</div>
+            <div className="user-avatar">{adminInitials || 'A'}</div>
             <div className="user-info">
               <span className="user-name">{adminName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>
@@ -222,15 +253,15 @@ function Notifications() {
               );
             }
 
-            const NotifWrapper = notif.read ? 'div' : 'button';
+            const NotifWrapper = 'button';
 
             return (
               <NotifWrapper
                 key={notif.id}
-                type={notif.read ? undefined : 'button'}
+                type="button"
                 className={`notif-card ${notif.read ? '' : 'notif-unread'} ${typeClass}`}
-                onClick={() => !notif.read && markAsRead(notif.id)}
-                style={{ cursor: notif.read ? 'default' : 'pointer' }}
+                onClick={() => openNotifDetail(notif)}
+                style={{ cursor: 'pointer' }}
               >
                 <div className="notif-avatar">{notifIcon}</div>
                 <div className="notif-content">
@@ -247,6 +278,93 @@ function Notifications() {
             );
           })}
         </div>
+
+        {/* Notification Detail Modal */}
+        {selectedNotif && (() => {
+          let headerClass = 'notif-modal-farmer';
+          if (selectedNotif.type === 'scan_disease') headerClass = 'notif-modal-disease';
+          else if (selectedNotif.type === 'scan_healthy') headerClass = 'notif-modal-healthy';
+          const typeLabels = { new_farmer: 'New Registration', scan_disease: 'Disease Scan', scan_healthy: 'Healthy Scan' };
+          const typeLabel = typeLabels[selectedNotif.type] || 'Notification';
+          return (
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+          <dialog className="notif-modal-overlay" open
+            onClick={() => setSelectedNotif(null)} onKeyDown={(e) => e.key === 'Escape' && setSelectedNotif(null)}>
+            {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+            <div className="notif-modal" onClick={(e) => e.stopPropagation()}>
+              <button className="notif-modal-close" onClick={() => setSelectedNotif(null)}>&times;</button>
+
+              <div className={`notif-modal-header ${headerClass}`}>
+                <h2>{selectedNotif.title}</h2>
+                <span className="notif-modal-type">{typeLabel}</span>
+              </div>
+
+              <div className="notif-modal-body">
+                <p className="notif-modal-message">{selectedNotif.description}</p>
+
+                {scanImage && (
+                  <div className="notif-modal-image-wrapper">
+                    <img
+                      src={`data:image/jpeg;base64,${scanImage}`}
+                      alt="Scanned leaf"
+                      className="notif-modal-image"
+                    />
+                  </div>
+                )}
+
+                <div className="notif-modal-details">
+                  <div className="notif-detail-row">
+                    <span className="notif-detail-label">Date & Time</span>
+                    <span className="notif-detail-value">{formatTimestamp(selectedNotif.timestamp)}</span>
+                  </div>
+
+                  {farmerName && (
+                    <div className="notif-detail-row">
+                      <span className="notif-detail-label">Farmer</span>
+                      <span className="notif-detail-value">{farmerName}</span>
+                    </div>
+                  )}
+
+                  {selectedNotif.farmerId && (
+                    <div className="notif-detail-row">
+                      <span className="notif-detail-label">Farmer ID</span>
+                      <span className="notif-detail-value notif-detail-mono">{selectedNotif.farmerId}</span>
+                    </div>
+                  )}
+
+                  {selectedNotif.analysisLabel && (
+                    <div className="notif-detail-row">
+                      <span className="notif-detail-label">Diagnosis</span>
+                      <span className={`notif-detail-value notif-detail-tag ${selectedNotif.analysisLabel === 'Healthy' ? 'notif-tag-healthy' : 'notif-tag-disease'}`}>
+                        {selectedNotif.analysisLabel}
+                      </span>
+                    </div>
+                  )}
+
+                  {selectedNotif.confidence != null && (
+                    <div className="notif-detail-row">
+                      <span className="notif-detail-label">Confidence</span>
+                      <span className="notif-detail-value">{(selectedNotif.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                  )}
+
+                  {selectedNotif.analysisId && (
+                    <div className="notif-detail-row">
+                      <span className="notif-detail-label">Analysis ID</span>
+                      <span className="notif-detail-value notif-detail-mono">{selectedNotif.analysisId}</span>
+                    </div>
+                  )}
+
+                  <div className="notif-detail-row">
+                    <span className="notif-detail-label">Status</span>
+                    <span className="notif-detail-value">{selectedNotif.read ? 'Read' : 'Unread'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </dialog>
+          );
+        })()}
       </main>
     </div>
   );
