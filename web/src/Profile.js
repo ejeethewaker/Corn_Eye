@@ -146,7 +146,7 @@ function Profile() {
           </div>
 
           <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
-            <div className="user-avatar">{initials || '?'}</div>
+            <div className="user-avatar">{initials || 'A'}</div>
             <div className="user-info">
               <span className="user-name">{fullName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>

@@ -3,111 +3,156 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { database } from './firebase';
-import { ref, get } from 'firebase/database';
+import { ref, get, onValue } from 'firebase/database';
 import './Dashboard.css';
 
 function Dashboard() {
   const navigate = useNavigate();
   const [adminName, setAdminName] = useState('');
   const [adminInitials, setAdminInitials] = useState('');
-  const [totalUsers, setTotalUsers] = useState(0);
-  const [totalScans, setTotalScans] = useState(0);
-  const [diseasesDetected, setDiseasesDetected] = useState(0);
-  const [healthyScans, setHealthyScans] = useState(0);
-  const [usersMonthPct, setUsersMonthPct] = useState(null);
-  const [scansWeekPct, setScansWeekPct] = useState(null);
-  const [diseasesToday, setDiseasesToday] = useState(0);
+  const [allFarmers, setAllFarmers] = useState([]);
+  const [allScans, setAllScans] = useState([]);
+  const [dateFilter, setDateFilter] = useState('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load admin profile
-        const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
-        const adminsRef = ref(database, 'admins');
-        const adminsSnap = await get(adminsRef);
-        if (adminsSnap.exists()) {
-          const admins = adminsSnap.val();
-          const matched = Object.values(admins).find((a) => a.email === storedEmail);
-          if (matched) {
-            const name = matched.fullName || 'Admin';
-            setAdminName(name);
-            setAdminInitials(
-              name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
-            );
-          }
+    // One-time admin profile load
+    const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+    get(ref(database, 'admins')).then((snap) => {
+      if (snap.exists()) {
+        const matched = Object.values(snap.val()).find((a) => a.email === storedEmail);
+        if (matched) {
+          const name = matched.fullName || 'Admin';
+          setAdminName(name);
+          setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
         }
-
-        // Time boundaries
-        const now = new Date();
-        const startOfToday    = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
-        const startOfThisWeek  = startOfToday - 6 * 86400000;   // last 7 days
-        const startOfPrevWeek  = startOfThisWeek - 7 * 86400000;
-
-        // Count total farmers + this-month vs last-month
-        const farmersRef = ref(database, 'farmers');
-        const farmersSnap = await get(farmersRef);
-        if (farmersSnap.exists()) {
-          const farmers = Object.values(farmersSnap.val());
-          setTotalUsers(farmers.length);
-          const thisMonth = farmers.filter(f => (f.createdAt || 0) >= startOfThisMonth).length;
-          const lastMonth = farmers.filter(f => (f.createdAt || 0) >= startOfLastMonth && (f.createdAt || 0) < startOfThisMonth).length;
-          if (lastMonth > 0) {
-            setUsersMonthPct(Math.round(((thisMonth - lastMonth) / lastMonth) * 100));
-          } else if (thisMonth > 0) {
-            setUsersMonthPct(100);
-          } else {
-            setUsersMonthPct(0);
-          }
-        }
-
-        // Count scans + this-week vs prev-week + diseases today
-        const scansRef = ref(database, 'analysis_results');
-        const scansSnap = await get(scansRef);
-        if (scansSnap.exists()) {
-          const results = Object.values(scansSnap.val());
-          setTotalScans(results.length);
-
-          let diseased = 0;
-          let diseasedToday = 0;
-          let healthy = 0;
-          let thisWeekScans = 0;
-          let prevWeekScans = 0;
-
-          results.forEach((r) => {
-            const ts = r.time_scanned || r.timestamp || r.scanned_at || 0;
-            const label = (r.analysis_label || '').toLowerCase();
-            const isDiseased = label && label !== 'healthy';
-
-            if (isDiseased) {
-              diseased++;
-              if (ts >= startOfToday) diseasedToday++;
-            } else if (label === 'healthy') {
-              healthy++;
-            }
-            if (ts >= startOfThisWeek) thisWeekScans++;
-            else if (ts >= startOfPrevWeek) prevWeekScans++;
-          });
-
-          setDiseasesDetected(diseased);
-          setHealthyScans(healthy);
-          setDiseasesToday(diseasedToday);
-
-          if (prevWeekScans > 0) {
-            setScansWeekPct(Math.round(((thisWeekScans - prevWeekScans) / prevWeekScans) * 100));
-          } else if (thisWeekScans > 0) {
-            setScansWeekPct(100);
-          } else {
-            setScansWeekPct(0);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load dashboard data:', err);
       }
+    }).catch((err) => console.error('Failed to load admin:', err));
+
+    // Real-time listeners
+    const unsubFarmers = onValue(ref(database, 'farmers'), (snap) => {
+      if (snap.exists()) {
+        setAllFarmers(Object.values(snap.val()));
+      } else {
+        setAllFarmers([]);
+      }
+    });
+
+    const unsubScans = onValue(ref(database, 'analysis_results'), (snap) => {
+      if (snap.exists()) {
+        setAllScans(Object.values(snap.val()));
+      } else {
+        setAllScans([]);
+      }
+    });
+
+    return () => {
+      unsubFarmers();
+      unsubScans();
     };
-    loadData();
   }, []);
+
+  // Compute date range from filter preset
+  const getDateRange = () => {
+    const now = new Date();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+    let from = 0;
+    let to = endOfDay;
+
+    switch (dateFilter) {
+      case 'today': {
+        from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        break;
+      }
+      case '7days': {
+        from = endOfDay - 7 * 86400000;
+        break;
+      }
+      case '30days': {
+        from = endOfDay - 30 * 86400000;
+        break;
+      }
+      case 'month': {
+        from = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        break;
+      }
+      case 'year': {
+        from = new Date(now.getFullYear(), 0, 1).getTime();
+        break;
+      }
+      case 'custom': {
+        if (customFrom) from = new Date(customFrom).getTime();
+        if (customTo) to = new Date(customTo + 'T23:59:59').getTime();
+        break;
+      }
+      default:
+        break;
+    }
+    return { from, to };
+  };
+
+  const { from: rangeFrom, to: rangeTo } = getDateRange();
+
+  // Filter data by date range
+  const filteredFarmers = dateFilter === 'all'
+    ? allFarmers
+    : allFarmers.filter(f => {
+        const ts = f.createdAt || 0;
+        return ts >= rangeFrom && ts <= rangeTo;
+      });
+
+  const filteredScans = dateFilter === 'all'
+    ? allScans
+    : allScans.filter(r => {
+        const ts = r.time_scanned || r.timestamp || r.scanned_at || 0;
+        return ts >= rangeFrom && ts <= rangeTo;
+      });
+
+  // Compute stats from filtered data
+  const totalUsers = filteredFarmers.length;
+  const totalScans = filteredScans.length;
+
+  let diseasesDetected = 0;
+  let healthyScans = 0;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  let diseasesToday = 0;
+
+  filteredScans.forEach((r) => {
+    const ts = r.time_scanned || r.timestamp || r.scanned_at || 0;
+    const label = (r.analysis_label || '').toLowerCase();
+    const isDiseased = label && label !== 'healthy';
+    if (isDiseased) {
+      diseasesDetected++;
+      if (ts >= startOfToday) diseasesToday++;
+    } else if (label === 'healthy') {
+      healthyScans++;
+    }
+  });
+
+  // Comparison stats (always based on all data)
+  const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+  const startOfThisWeek = startOfToday - 6 * 86400000;
+  const startOfPrevWeek = startOfThisWeek - 7 * 86400000;
+
+  const thisMonthUsers = allFarmers.filter(f => (f.createdAt || 0) >= startOfThisMonth).length;
+  const lastMonthUsers = allFarmers.filter(f => (f.createdAt || 0) >= startOfLastMonth && (f.createdAt || 0) < startOfThisMonth).length;
+  let usersMonthPct = 0;
+  if (lastMonthUsers > 0) usersMonthPct = Math.round(((thisMonthUsers - lastMonthUsers) / lastMonthUsers) * 100);
+  else if (thisMonthUsers > 0) usersMonthPct = 100;
+
+  let thisWeekScans = 0;
+  let prevWeekScans = 0;
+  allScans.forEach((r) => {
+    const ts = r.time_scanned || r.timestamp || r.scanned_at || 0;
+    if (ts >= startOfThisWeek) thisWeekScans++;
+    else if (ts >= startOfPrevWeek) prevWeekScans++;
+  });
+  let scansWeekPct = 0;
+  if (prevWeekScans > 0) scansWeekPct = Math.round(((thisWeekScans - prevWeekScans) / prevWeekScans) * 100);
+  else if (thisWeekScans > 0) scansWeekPct = 100;
 
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
@@ -131,7 +176,7 @@ function Dashboard() {
           </div>
 
           <Link to="/profile" className="sidebar-user-card sidebar-user-clickable">
-            <div className="user-avatar">{adminInitials || '?'}</div>
+            <div className="user-avatar">{adminInitials || 'A'}</div>
             <div className="user-info">
               <span className="user-name">{adminName || 'Admin'}</span><span className="user-role">Administrator</span>
             </div>
@@ -186,7 +231,42 @@ function Dashboard() {
 
       {/* Main Content */}
       <main className="dashboard-main">
-        <h1 className="dashboard-title">Dashboard Overview</h1>
+        <div className="dashboard-header">
+          <h1 className="dashboard-title">Dashboard Overview</h1>
+          <div className="date-filter">
+            <div className="date-filter-presets">
+              {[
+                { value: 'all', label: 'All Time' },
+                { value: 'today', label: 'Today' },
+                { value: '7days', label: '7 Days' },
+                { value: '30days', label: '30 Days' },
+                { value: 'month', label: 'This Month' },
+                { value: 'year', label: 'This Year' },
+                { value: 'custom', label: 'Custom' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  className={`date-filter-btn ${dateFilter === opt.value ? 'date-filter-btn-active' : ''}`}
+                  onClick={() => setDateFilter(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {dateFilter === 'custom' && (
+              <div className="date-filter-custom">
+                <label>
+                  From{' '}
+                  <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+                </label>
+                <label>
+                  To{' '}
+                  <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="stats-grid">
           <div className="stat-card stat-blue">
