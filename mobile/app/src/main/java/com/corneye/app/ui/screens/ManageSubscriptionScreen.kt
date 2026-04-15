@@ -26,6 +26,9 @@ import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
 
 @Composable
 fun ManageSubscriptionScreen(navController: NavController) {
@@ -43,35 +46,37 @@ fun ManageSubscriptionScreen(navController: NavController) {
     var isLoading by remember { mutableStateOf(true) }
     var showPaymentModal by remember { mutableStateOf(false) }
 
-    // Load subscription data from Firebase
-    LaunchedEffect(userId) {
-        if (userId.isNotEmpty()) {
-            FirebaseHelper.farmersRef().child(userId).child("subscription").get()
-                .addOnSuccessListener { snapshot ->
-                    if (snapshot.exists()) {
-                        planName = snapshot.child("active_plan").getValue(String::class.java) ?: "Free Plan"
-                        val price = snapshot.child("plan_price").getValue(Long::class.java)?.toInt() ?: 0
-                        planPrice = "₱${price}.00 / month"
-                        renewalDate = snapshot.child("renewal_date_text").getValue(String::class.java) ?: "N/A"
-                        paymentMethodName = snapshot.child("payment_method").getValue(String::class.java) ?: "None"
-                        paymentMethodMasked = "••••${(1000..9999).random()}"
-                        subscriptionStatus = snapshot.child("subscription_status").getValue(String::class.java) ?: "active"
-
-                        // Set features based on plan
-                        features = when {
-                            planName.contains("Premium", ignoreCase = true) -> listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features", "Detailed reports")
-                            planName.contains("Basic", ignoreCase = true) -> listOf("100 scans per month", "Standard AI detection", "Email support", "Scan history", "Detailed reports")
-                            else -> listOf("10 scans per month", "Basic detection only", "Community support")
-                        }
-                    }
-                    isLoading = false
-                }
-                .addOnFailureListener {
-                    isLoading = false
-                }
-        } else {
+    // Real-time listener for subscription data
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) {
             isLoading = false
+            return@DisposableEffect onDispose {}
         }
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (snapshot.exists()) {
+                    planName = snapshot.child("active_plan").getValue(String::class.java) ?: "Free Plan"
+                    val price = snapshot.child("plan_price").getValue(Long::class.java)?.toInt() ?: 0
+                    planPrice = "₱${price}.00 / month"
+                    renewalDate = snapshot.child("renewal_date_text").getValue(String::class.java) ?: "N/A"
+                    paymentMethodName = snapshot.child("payment_method").getValue(String::class.java) ?: "None"
+                    paymentMethodMasked = "••••${(1000..9999).random()}"
+                    subscriptionStatus = snapshot.child("subscription_status").getValue(String::class.java) ?: "active"
+
+                    // Set features based on plan
+                    features = when {
+                        planName.contains("Premium", ignoreCase = true) -> listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features", "Detailed reports")
+                        planName.contains("Basic", ignoreCase = true) -> listOf("100 scans per day", "Standard AI detection", "Email support", "Scan history", "Detailed reports")
+                        else -> listOf("10 scans per month", "Basic detection only", "Community support")
+                    }
+                }
+                isLoading = false
+            }
+            override fun onCancelled(error: DatabaseError) { isLoading = false }
+        }
+        val ref = FirebaseHelper.farmersRef().child(userId).child("subscription")
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     Scaffold(

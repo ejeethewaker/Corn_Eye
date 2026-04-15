@@ -26,6 +26,9 @@ import androidx.navigation.NavController
 import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.ValueEventListener
 
 data class SubscriptionPlan(
     val name: String,
@@ -44,10 +47,15 @@ fun SubscriptionScreen(navController: NavController) {
     var plans by remember { mutableStateOf<List<SubscriptionPlan>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Load subscription plans from Firebase
-    LaunchedEffect(Unit) {
-        FirebaseHelper.subscriptionPlansRef().get()
-            .addOnSuccessListener { snapshot ->
+    // Real-time listener for subscription plans
+    DisposableEffect(Unit) {
+        val defaultPlans = listOf(
+            SubscriptionPlan("Free Plan", "\uD83D\uDCE6", 0, listOf("10 scans per month", "Basic detection only", "Community support")),
+            SubscriptionPlan("Basic Plan", "⭐", 99, listOf("100 scans per day", "Standard AI detection", "Email support"), "SELECTED", GreenPrimary),
+            SubscriptionPlan("Premium Plan", "\uD83D\uDC51", 199, listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features"), "BEST", StatusError)
+        )
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
                 if (snapshot.exists()) {
                     val loadedPlans = mutableListOf<SubscriptionPlan>()
                     for (child in snapshot.children) {
@@ -70,29 +78,22 @@ fun SubscriptionScreen(navController: NavController) {
                     }
                     if (loadedPlans.isNotEmpty()) {
                         plans = loadedPlans
-                        // Select the second plan by default if available
                         selectedPlanIndex = if (loadedPlans.size > 1) 1 else 0
                     }
                 }
-                // If no plans from Firebase, fall back to defaults
                 if (plans.isEmpty()) {
-                    plans = listOf(
-                        SubscriptionPlan("Free Plan", "\uD83D\uDCE6", 0, listOf("10 scans per month", "Basic detection only", "Community support")),
-                        SubscriptionPlan("Basic Plan", "⭐", 99, listOf("100 scans per month", "Standard AI detection", "Email support"), "SELECTED", GreenPrimary),
-                        SubscriptionPlan("Premium Plan", "\uD83D\uDC51", 199, listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features"), "BEST", StatusError)
-                    )
+                    plans = defaultPlans
                 }
                 isLoading = false
             }
-            .addOnFailureListener {
-                // Fall back to defaults on error
-                plans = listOf(
-                    SubscriptionPlan("Free Plan", "\uD83D\uDCE6", 0, listOf("10 scans per month", "Basic detection only", "Community support")),
-                    SubscriptionPlan("Basic Plan", "⭐", 99, listOf("100 scans per month", "Standard AI detection", "Email support"), "SELECTED", GreenPrimary),
-                    SubscriptionPlan("Premium Plan", "\uD83D\uDC51", 199, listOf("Unlimited scans", "Advanced AI + Expert review", "Priority support", "Full features"), "BEST", StatusError)
-                )
+            override fun onCancelled(error: DatabaseError) {
+                plans = defaultPlans
                 isLoading = false
             }
+        }
+        val ref = FirebaseHelper.subscriptionPlansRef()
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
     }
 
     Scaffold(
