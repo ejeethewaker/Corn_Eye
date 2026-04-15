@@ -1,6 +1,6 @@
 # CornEye 🌽
 
-**CornEye** is an AI-powered corn leaf disease detection system built for Filipino farmers. It combines an on-device TensorFlow Lite model, a Firebase Realtime Database backend, an Android mobile app, and a React web admin dashboard.
+**CornEye** is a corn leaf disease detection system built for Filipino farmers. It combines an on-device TensorFlow Lite model, a Firebase Realtime Database backend, an Android mobile app, and a React web admin dashboard.
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## Overview
 
-CornEye allows farmers to photograph a corn leaf with their Android phone, and receive an instant AI diagnosis — identifying whether the leaf is **healthy** or affected by one of three common diseases. Scan results, farmer accounts, and notifications are all synced to Firebase Realtime Database, accessible in real-time by an admin web dashboard.
+CornEye allows farmers to photograph a corn leaf with their Android phone and receive an instant diagnosis — identifying whether the leaf is **healthy**, affected by one of three common diseases, or **not a valid corn leaf**. Scan results, farmer accounts, and notifications are all synced to Firebase Realtime Database, accessible in real-time by an admin web dashboard.
 
 ---
 
@@ -41,8 +41,8 @@ CornEye allows farmers to photograph a corn leaf with their Android phone, and r
 │  │ • Scan History  │          │  • Farmer Detail View        │  │
 │  │ • Notifications │          │  • Notifications Feed        │  │
 │  │ • Subscription  │          │  • Admin Profile             │  │
-│  │ • Settings      │          └──────────────┬───────────────┘  │
-│  └────────┬────────┘                         │                  │
+│  │ • Settings      │          │  • Documentation / Q&A       │  │
+│  └────────┬────────┘          └──────────────┬───────────────┘  │
 │           │                                  │                  │
 │           └────────────┬─────────────────────┘                  │
 │                        ▼                                        │
@@ -53,10 +53,15 @@ CornEye allows farmers to photograph a corn leaf with their Android phone, and r
 │               Firebase Storage                                  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │               TFLite Models (on-device)                  │   │
-│  │   Stage 1: Corn Leaf Detector (5-class)                  │   │
-│  │   Stage 2: Disease Classifier · MobileNetV2 · 4 classes  │   │
-│  │   224×224 · float32                                      │   │
+│  │              TFLite Model (on-device)                    │   │
+│  │   Single 5-class classifier · MobileNetV2 · INT8        │   │
+│  │   224×224 RGB · ~3.5 MB                                  │   │
+│  │                                                          │   │
+│  │   Mobile inference pipeline:                             │   │
+│  │     1. Green pixel ratio check (fast color gate)         │   │
+│  │     2. TFLite inference (5 classes)                      │   │
+│  │     3. Reject if Invalid OR confidence <70% OR           │   │
+│  │        entropy >0.8                                      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -65,14 +70,15 @@ CornEye allows farmers to photograph a corn leaf with their Android phone, and r
 
 ## Disease Classes
 
-The model classifies corn leaf images into 4 categories:
+The model classifies corn leaf images into 5 categories (4 corn + 1 rejection class):
 
-| Label | Description |
-|---|---|
-| **Healthy** | No disease detected |
-| **Common Rust** | *Puccinia sorghi* — orange/brown pustules on leaf surfaces |
-| **Gray Leaf Spot** | *Cercospora zeae-maydis* — rectangular gray/tan lesions |
-| **Northern Leaf Blight** | *Exserohilum turcicum* — long cigar-shaped gray-green lesions |
+| # | Label | Description |
+|---|---|---|
+| 0 | **Common Rust** | Orange/brown pustules on leaf surfaces |
+| 1 | **Gray Leaf Spot** | Rectangular gray/tan lesions |
+| 2 | **Healthy** | No disease detected |
+| 3 | **Northern Leaf Blight** | Long cigar-shaped gray-green lesions |
+| 4 | **Invalid** | Not a corn leaf (out-of-distribution rejection) |
 
 ---
 
@@ -84,17 +90,19 @@ CornEye/
 ├── vercel.json                     ← Web dashboard deployment config
 │
 ├── scripts/                        ← ML training & utility scripts
-│   ├── train_model.py              ← Train MobileNetV2 disease classifier
-│   ├── train_leaf_detector.py      ← Train corn leaf detector (Stage 1)
-│   ├── convert_model.py            ← Convert Keras → TFLite
-│   └── val_model_accuracy.py       ← Validate model accuracy on dataset
+│   ├── train_model.py              ← 5-phase training pipeline (MobileNetV2, INT8)
+│   ├── val_model_accuracy.py       ← Validate model accuracy on dataset
+│   ├── test_tflite.py              ← Test TFLite model inference
+│   ├── plot_training.py            ← Plot training curves from CSV logs
+│   ├── prepare_invalid.py          ← Prepare Invalid class from non-corn folders
+│   └── verify_dataset.py           ← Verify dataset structure and counts
 │
 ├── models/                         ← Trained model artifacts
 │   ├── corn_disease_keras_model.keras
-│   ├── corn_disease_model.tflite
-│   ├── corn_leaf_detector.tflite
-│   ├── labels.txt
-│   └── leaf_labels.txt
+│   ├── corn_disease_model.tflite   ← INT8 quantized (~3.5 MB)
+│   ├── labels.txt                  ← 5 class labels
+│   ├── training_phase2a_log.csv    ← Phase 2a training log (head only)
+│   └── training_phase2b_log.csv    ← Phase 2b training log (fine-tune)
 │
 ├── mobile/                         ← Android app
 │   └── app/
@@ -102,24 +110,29 @@ CornEye/
 │       └── src/main/
 │           ├── assets/
 │           │   ├── corn_disease_model.tflite
-│           │   ├── corn_leaf_detector.tflite
-│           │   ├── labels.txt
-│           │   └── leaf_labels.txt
+│           │   └── labels.txt
 │           └── java/com/corneye/app/
+│               ├── MainActivity.kt
+│               ├── CornEyeApplication.kt
 │               ├── data/
 │               │   ├── FirebaseHelper.kt
 │               │   └── UserPreferences.kt
 │               ├── navigation/
+│               │   ├── NavGraph.kt
 │               │   └── Screen.kt
 │               └── ui/
 │                   ├── theme/
-│                   │   └── Color.kt
+│                   │   ├── Color.kt
+│                   │   ├── Theme.kt
+│                   │   └── Type.kt
 │                   └── screens/
 │                       ├── SplashScreen.kt
 │                       ├── LoginScreen.kt
 │                       ├── RegisterScreen.kt
 │                       ├── HomeScreen.kt
 │                       ├── ScanScreen.kt
+│                       ├── CornDiseaseClassifier.kt
+│                       ├── CornLeafDetector.kt
 │                       ├── AnalyzingScreen.kt
 │                       ├── ResultScreen.kt
 │                       ├── FullReportScreen.kt
@@ -155,7 +168,9 @@ CornEye/
         ├── Users.js / Users.css
         ├── UserProfile.js / UserProfile.css
         ├── Notifications.js / Notifications.css
-        └── Profile.js
+        ├── Profile.js
+        ├── Documentation.js / Documentation.css
+        └── DocumentationQuestions.js / DocumentationQuestions.css
 ```
 
 ---
@@ -174,7 +189,7 @@ CornEye/
 |---|---|
 | Splash / Login / Register | Authentication with Firebase Auth |
 | Home | Overview stats (total scans, diseases, healthy), recent history |
-| Scan | CameraX live preview → capture → two-stage TFLite inference (leaf detection → disease classification) |
+| Scan | CameraX live preview → capture → green pixel check → TFLite inference (5-class) |
 | Analyzing | On-device MobileNetV2 inference with confidence score |
 | Result | Disease label, confidence percentage, quick actions |
 | Full Report | Scanned image, detailed disease info, causes, treatments, prevention |
@@ -198,7 +213,7 @@ CornEye/
 
 1. Open `mobile/` in Android Studio.
 2. Place `google-services.json` in `mobile/app/`.
-3. Place `corn_disease_model.tflite` in `mobile/app/src/main/assets/` (or run `python scripts/train_model.py` to generate it).
+3. Place `corn_disease_model.tflite` and `labels.txt` in `mobile/app/src/main/assets/` (or run `python scripts/train_model.py` to generate and auto-copy them).
 4. Click **Run** or build APK via `Build → Generate Signed Bundle/APK`.
 
 ---
@@ -214,11 +229,13 @@ CornEye/
 | Page | Route | Description |
 |---|---|---|
 | Login | `/` | Admin email/password login (stored in localStorage) |
-| Dashboard | `/dashboard` | Total users, total scans, diseases detected, healthy scans; weekly/monthly trends |
-| Users | `/users` | All registered farmers, status badges, profile photos |
+| Dashboard | `/dashboard` | Total users, total scans, diseases detected, healthy scans; date filter for trends |
+| Users | `/users` | All registered farmers, status badges, profile photos (real-time) |
 | User Profile | `/user/:id` | Individual farmer detail — scans, subscription, contact |
-| Notifications | `/notifications` | Real-time feed of all scan alerts and new-farmer notifications; click to mark read |
-| Profile | `/profile` | Admin profile view |
+| Notifications | `/notifications` | Real-time feed of scan alerts and new-farmer notifications; detail modal with scan photo |
+| Profile | `/profile` | Admin profile view and update |
+| Documentation | `/documentation` | ML pipeline docs, disease classes, model architecture summary |
+| Defense Q&A | `/documentation/questions` | 43 Q&A items across 9 categories for project defense prep |
 
 ### Running locally
 
@@ -239,53 +256,68 @@ npm run build
 
 ## ML Model
 
+### 5-Phase Training Pipeline
+
+The model is trained via `scripts/train_model.py` which runs a 5-phase pipeline:
+
+| Phase | Description |
+|---|---|
+| **Phase 1** — Data Collection | PlantVillage corn subset + non-corn folders as "Invalid" class; heavy augmentation (flip, rotate, crop, HSV jitter, Gaussian noise); oversampling for class balance |
+| **Phase 2** — Training | MobileNetV2 (ImageNet pretrained); two-stage: frozen head (30 epochs) → fine-tune top 60 layers (25 epochs, LR 1e-4) |
+| **Phase 3** — Evaluation | Confusion matrix, per-class precision/recall/F1; target >95% validation accuracy |
+| **Phase 4** — TFLite Conversion | INT8 quantization with 500-image stratified representative dataset; validates quantized accuracy >94%; fallback to float32 if needed |
+| **Phase 5** — Mobile UX | Handled by Android app: green pixel check → TFLite inference → reject if Invalid / low confidence / high entropy |
+
 ### Training a new model
-
-The model is trained on the **PlantVillage** dataset (corn classes only) using MobileNetV2 transfer learning.
-
-```bash
-pip install tensorflow tensorflow-datasets
-python scripts/train_model.py
-```
-
-Output: `models/corn_disease_model.tflite` — auto-copied to `mobile/app/src/main/assets/`.
-
-### Converting a pre-existing Keras model
-
-If you already have a Keras `.keras` file in `models/`:
 
 ```bash
 pip install tensorflow
-python scripts/convert_model.py
+python scripts/train_model.py
 ```
 
-This exports a **float32** TFLite model.
+Output: `models/corn_disease_model.tflite` and `models/labels.txt` — auto-copied to `mobile/app/src/main/assets/`.
+
+Training logs are saved to `models/training_phase2a_log.csv` and `models/training_phase2b_log.csv`.
+
+### Other scripts
+
+| Script | Purpose |
+|---|---|
+| `val_model_accuracy.py` | Validate model accuracy on a dataset split |
+| `test_tflite.py` | Test TFLite model inference on sample images |
+| `plot_training.py` | Plot training/validation curves from CSV logs |
+| `prepare_invalid.py` | Prepare Invalid class images from non-corn plant folders |
+| `verify_dataset.py` | Verify dataset folder structure and image counts |
 
 ### Model specs
 
 | Property | Value |
 |---|---|
 | Architecture | MobileNetV2 (ImageNet pretrained) |
-| Input | 224 × 224 RGB |
-| Output | 4-class softmax |
-| Quantization | Float32 (no quantization) |
-| Format | TFLite |
-| Classes | Common Rust, Gray Leaf Spot, Healthy, Northern Leaf Blight |
-| Validation accuracy | 98.31% |
+| Input | 224 × 224 RGB, normalized [0,1] |
+| Output | 5-class softmax |
+| Quantization | INT8 (float32 input/output for Android compatibility) |
+| Format | TFLite (~3.5 MB) |
+| Classes | Common Rust, Gray Leaf Spot, Healthy, Northern Leaf Blight, Invalid |
+| Training data | PlantVillage dataset (corn classes + non-corn as Invalid) |
 
 ---
 
 ## Firebase Database Schema
 
 ```
-/farmers/{userId}/
-    name                  String
+/admins/{adminId}/
+    fullName              String
     email                 String
-    contact               String
-    address               String
+
+/farmers/{userId}/
+    fullname              String
+    email_address         String
     status                String       "active" | "inactive"
     profile_photo_url     String       raw Base64
-    created_at            Long         epoch ms
+    farm_location         String
+    farm_area             String
+    createdAt             Long         epoch ms
     subscription/
         active_plan           String   "Free Plan" | "Basic Plan" | "Premium Plan"
         plan_price            Long     price in PHP
@@ -296,22 +328,22 @@ This exports a **float32** TFLite model.
 /notifications/{notifId}/
     farmer_id             String
     notif_type            String       "scan_disease" | "scan_healthy" | "new_farmer"
-    title                 String
-    description           String
+    notif_title           String
+    notif_message         String
     is_read               Boolean
     timestamp             Long         epoch ms  (new_farmer)
     time_scanned          Long         epoch ms  (scan_*)
     analysis_id           String
-    label                 String       "healthy" | disease name
+    analysis_label        String       disease name | "healthy"
     confidence_score      Float
 
-/scan_results/{resultId}/
+/analysis_results/{resultId}/
     farmer_id             String
-    label                 String
-    confidence            Float
-    is_healthy            Boolean
+    analysis_id           String
+    analysis_label        String
+    confidence_score      Float
     time_scanned          Long         epoch ms
-    image_url             String
+    image_url             String       raw Base64 of scanned photo
 ```
 
 ---
@@ -324,7 +356,7 @@ This exports a **float32** TFLite model.
 |---|---|
 | Android Studio | Build and run the mobile app |
 | Node.js 18+ | Run the web dashboard |
-| Python 3.9+ | Train or convert the TFLite model |
+| Python 3.9+ | Train the TFLite model |
 | Firebase project | Backend (Realtime Database + Auth + Storage) |
 
 ### Full setup steps
@@ -355,7 +387,7 @@ This exports a **float32** TFLite model.
 
 5. **ML model** (optional — pre-built `.tflite` is already in assets)
    ```bash
-   pip install tensorflow tensorflow-datasets
+   pip install tensorflow
    python scripts/train_model.py
    # Output: models/corn_disease_model.tflite → auto-copied to mobile/app/src/main/assets/
    ```
@@ -368,6 +400,6 @@ This exports a **float32** TFLite model.
 |---|---|
 | Mobile | Kotlin · Jetpack Compose · CameraX · TensorFlow Lite · Firebase |
 | Web Admin | React 19 · React Router 7 · Firebase JS SDK 12 |
-| AI Model | MobileNetV2 · TFLite float32 · PlantVillage dataset |
+| ML Model | MobileNetV2 · TFLite INT8 quantized · PlantVillage dataset |
 | Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage |
 | Build | Gradle 8 (KTS) · Android SDK 35 |
