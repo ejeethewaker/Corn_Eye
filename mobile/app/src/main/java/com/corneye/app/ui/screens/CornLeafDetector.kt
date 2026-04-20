@@ -18,9 +18,10 @@ import android.net.Uri
  * enough green/plant-like pixels to be worth sending to the classifier.
  *
  * Three checks must ALL pass:
- *   1. Green pixel ratio ≥ 25%  — at least 1/4 of sampled pixels are green-hued
- *   2. Green saturation  ≥ 25%  — those green pixels have vivid color (not washed out)
- *   3. Green dominance   ≥ 38%  — green channel is strongest overall
+ *   1. Green pixel ratio    ≥ 10%  — at least 1/10 of sampled pixels are green-hued
+ *   2. Green saturation     ≥ 20%  — those green pixels have vivid color (not washed out)
+ *   3. Combined plant ratio ≥ 25%  — green + orange/brown diseased tissue pixels combined
+ *   4. Green dominance      ≥ 27%  — green channel is reasonably strong overall
  */
 class CornLeafDetector(private val context: Context) {
 
@@ -29,9 +30,15 @@ class CornLeafDetector(private val context: Context) {
         private const val INPUT_SIZE = 224
 
         // ── Color pre-check constants ──
-        private const val MIN_GREEN_RATIO        = 0.25f
-        private const val MIN_GREEN_SATURATION   = 0.25f
-        private const val MIN_GREEN_DOMINANCE    = 0.38f
+        // Lowered to accommodate severely diseased leaves (rust, blight) where most
+        // green tissue has been replaced by orange/brown necrotic areas.
+        // Tune these by checking logcat tag "CornLeafDetector" on real phone photos.
+        private const val MIN_GREEN_RATIO          = 0.06f  // was 0.10
+        private const val MIN_GREEN_SATURATION     = 0.14f  // was 0.20
+        private const val MIN_GREEN_DOMINANCE      = 0.23f  // was 0.27
+
+        // Diseased/necrotic leaf tissue (rust, blight) — orange-brown hues
+        private const val MIN_PLANT_COMBINED_RATIO = 0.15f  // was 0.25
     }
 
     // No model to load — always ready
@@ -89,26 +96,30 @@ class CornLeafDetector(private val context: Context) {
     /**
      * Multi-layer color sanity check to reject non-plant images.
      *
-     * Three checks must ALL pass:
-     * 1. Green pixel ratio: ≥25% of sampled pixels are in the green/yellow-green hue range
-     *    with meaningful saturation (≥20%) and brightness (≥10%). This rejects obviously
-     *    non-green images.
-     * 2. Green saturation quality: the average saturation of those green pixels must be
-     *    ≥25%. Real corn leaves have vivid greens; screen/monitor light is washed out.
-     * 3. Green channel dominance: across ALL pixels, the green channel must be the
-     *    strongest on average (G / (R+G+B) ≥ 0.38). Corn leaf photos are green-dominant;
-     *    indoor scenes with mixed colors are not.
+     * Checks:
+     * 1. Green pixel ratio: ≥10% of sampled pixels are in the green/yellow-green hue range
+     * 2. Green saturation quality: average saturation of green pixels ≥20%
+     * 3. Combined plant ratio: green + orange/brown diseased pixels ≥25%
+     * 4. Green channel dominance: G/(R+G+B) ≥ 0.27
+     * 5. Green spatial spread: plant pixels must appear in at least 2 of 4 quadrants
+     *    (prevents a single green sticker/spot from passing the check)
      *
      * Uses every 4th pixel for speed (~12,500 samples on 224×224).
      */
     private fun hasPlantLikeColors(pixels: IntArray): Boolean {
         val hsv = FloatArray(3)
         var greenCount = 0
+        var diseasedCount = 0
         var greenSatSum = 0f
         var sampledCount = 0
         var totalR = 0L
         var totalG = 0L
         var totalB = 0L
+
+        // Quadrant plant pixel counts (TL, TR, BL, BR)
+        val quadrantPlant = IntArray(4)
+        val quadrantTotal = IntArray(4)
+        val half = INPUT_SIZE / 2
 
         for (i in pixels.indices step 4) {
             val pixel = pixels[i]
@@ -121,39 +132,65 @@ class CornLeafDetector(private val context: Context) {
             totalB += b
             sampledCount++
 
+            // Determine quadrant from pixel index
+            val pixelIdx = i / 4  // actual pixel position (step 4 sampling)
+            val row = (pixelIdx / INPUT_SIZE)
+            val col = (pixelIdx % INPUT_SIZE)
+            val quadrant = (if (row >= half) 2 else 0) + (if (col >= half) 1 else 0)
+            quadrantTotal[quadrant]++
+
             android.graphics.Color.RGBToHSV(r, g, b, hsv)
 
-            // Hue 25-165 covers yellow-green through green (corn leaf range)
-            // Saturation >= 0.20 excludes washed-out grays/whites/screen light
-            // Value >= 0.10 excludes very dark pixels
-            if (hsv[0] in 25f..165f && hsv[1] >= 0.20f && hsv[2] >= 0.10f) {
+            val isGreen    = hsv[0] in 25f..165f && hsv[1] >= 0.20f && hsv[2] >= 0.10f
+            val isDiseased = hsv[0] in 8f..45f   && hsv[1] >= 0.25f && hsv[2] >= 0.15f
+
+            if (isGreen) {
                 greenCount++
                 greenSatSum += hsv[1]
+                quadrantPlant[quadrant]++
+            } else if (isDiseased) {
+                diseasedCount++
+                quadrantPlant[quadrant]++
             }
         }
 
         if (sampledCount == 0) return false
 
-        val greenRatio = greenCount.toFloat() / sampledCount
-        val avgGreenSat = if (greenCount > 0) greenSatSum / greenCount else 0f
-        val rgbSum = (totalR + totalG + totalB).toFloat()
+        val greenRatio     = greenCount.toFloat() / sampledCount
+        val combinedRatio  = (greenCount + diseasedCount).toFloat() / sampledCount
+        val avgGreenSat    = if (greenCount > 0) greenSatSum / greenCount else 0f
+        val rgbSum         = (totalR + totalG + totalB).toFloat()
         val greenDominance = if (rgbSum > 0f) totalG.toFloat() / rgbSum else 0f
 
+        // Count how many quadrants have ≥5% plant pixels
+        val activeQuadrants = quadrantPlant.indices.count { q ->
+            quadrantTotal[q] > 0 && quadrantPlant[q].toFloat() / quadrantTotal[q] >= 0.05f
+        }
+
         android.util.Log.d(TAG, "Color pre-check: greenRatio=${"%.3f".format(greenRatio)} " +
-            "($greenCount/$sampledCount, need>=$MIN_GREEN_RATIO), " +
-            "avgGreenSat=${"%.3f".format(avgGreenSat)} (need>=$MIN_GREEN_SATURATION), " +
-            "greenDominance=${"%.3f".format(greenDominance)} (need>=$MIN_GREEN_DOMINANCE)")
+            "combinedRatio=${"%.3f".format(combinedRatio)} " +
+            "avgGreenSat=${"%.3f".format(avgGreenSat)} " +
+            "greenDominance=${"%.3f".format(greenDominance)} " +
+            "activeQuadrants=$activeQuadrants/4")
 
         if (greenRatio < MIN_GREEN_RATIO) {
             android.util.Log.d(TAG, "→ FAIL: not enough green pixels")
             return false
         }
         if (avgGreenSat < MIN_GREEN_SATURATION) {
-            android.util.Log.d(TAG, "→ FAIL: green pixels are not saturated enough (screen/artificial light?)")
+            android.util.Log.d(TAG, "→ FAIL: green pixels not saturated enough")
+            return false
+        }
+        if (combinedRatio < MIN_PLANT_COMBINED_RATIO) {
+            android.util.Log.d(TAG, "→ FAIL: not enough plant-like pixels (green + diseased)")
             return false
         }
         if (greenDominance < MIN_GREEN_DOMINANCE) {
-            android.util.Log.d(TAG, "→ FAIL: green channel not dominant overall")
+            android.util.Log.d(TAG, "→ FAIL: green channel not dominant enough overall")
+            return false
+        }
+        if (activeQuadrants < 1) {
+            android.util.Log.d(TAG, "→ FAIL: no plant pixels found in any quadrant ($activeQuadrants/4)")
             return false
         }
 

@@ -24,16 +24,16 @@ import java.nio.channels.FileChannel
  *   - Output: [1, 5]             float32 softmax probabilities
  *
  * OOD rejection gates (applied by the caller via [Result.isValid]):
- *   1. Predicted class == "Invalid"  → reject
- *   2. Top confidence < 70%          → reject
- *   3. Shannon entropy > 0.8         → reject
+ *   1. Predicted class == "Invalid"       → reject
+ *   2. Top confidence < 55%              → reject (tune up once real-photo logs collected)
+ *   3. Normalized Shannon entropy > 0.8  → reject (entropy is divided by ln(5) so 1.0 = uniform)
  *
  * Labels (labels.txt, must match training order):
  *   0 - Common Rust
  *   1 - Gray Leaf Spot
  *   2 - Healthy
- *   3 - Invalid
- *   4 - Northern Leaf Blight
+ *   3 - Northern Leaf Blight
+ *   4 - Invalid
  *
  * GPU acceleration is attempted automatically and falls back to CPU if unavailable.
  */
@@ -46,7 +46,11 @@ class CornDiseaseClassifier(private val context: Context) {
         private const val TAG = "CornClassifier"
 
         // OOD gate thresholds — must match test_tflite.py
-        private const val CONFIDENCE_MIN = 0.70f
+        // Confidence: 0.55 is a safe starting point for real phone photos;
+        //   tune upward once you have real-world logcat data.
+        private const val CONFIDENCE_MIN = 0.55f
+        // Entropy is normalized to [0,1] by dividing by ln(numClasses),
+        //   so 0.80 now correctly means "reject if uncertainty > 80% of max".
         private const val ENTROPY_MAX    = 0.80f
         private const val INVALID_LABEL  = "Invalid"
     }
@@ -135,8 +139,16 @@ class CornDiseaseClassifier(private val context: Context) {
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
         } else bitmap
 
+        // Center-square crop before scaling — avoids aspect ratio distortion when
+        // feeding tall 9:16 phone photos into the square 224×224 model input.
+        // Crops the largest centered square from the image, then scales to 224×224.
+        val squareSize = minOf(softBitmap.width, softBitmap.height)
+        val cropX = (softBitmap.width  - squareSize) / 2
+        val cropY = (softBitmap.height - squareSize) / 2
+        val croppedBitmap = Bitmap.createBitmap(softBitmap, cropX, cropY, squareSize, squareSize)
+
         // Scale to 224×224 (matches training resize)
-        val scaled = Bitmap.createScaledBitmap(softBitmap, INPUT_SIZE, INPUT_SIZE, true)
+        val scaled = Bitmap.createScaledBitmap(croppedBitmap, INPUT_SIZE, INPUT_SIZE, true)
         // Ensure scaled result is also software-backed
         val argbScaled: Bitmap = if (scaled.config != Bitmap.Config.ARGB_8888)
             scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
@@ -221,15 +233,22 @@ class CornDiseaseClassifier(private val context: Context) {
     // Private helpers
     // -----------------------------------------------------------------------
 
-    /** Shannon entropy of a probability distribution. Higher = more uncertain. */
+    /**
+     * Normalized Shannon entropy of a probability distribution.
+     * Divides by ln(numClasses) so the result is always in [0, 1]:
+     *   0.0 = completely certain (one class = 1.0)
+     *   1.0 = totally uncertain (uniform distribution)
+     * Without normalization, ln(5) ≈ 1.609 would be the max for 5 classes,
+     * making a raw threshold of 0.8 far too strict.
+     */
     private fun shannonEntropy(probs: FloatArray): Float {
+        if (probs.size <= 1) return 0f
         var h = 0.0
         for (p in probs) {
-            if (p > 1e-10f) {
-                h -= p * Math.log(p.toDouble())
-            }
+            if (p > 1e-10f) h -= p * Math.log(p.toDouble())
         }
-        return h.toFloat()
+        val maxEntropy = Math.log(probs.size.toDouble())  // ln(5) ≈ 1.609
+        return (h / maxEntropy).toFloat()
     }
 
     private fun loadModelBuffer(): MappedByteBuffer {

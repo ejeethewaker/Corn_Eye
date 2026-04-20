@@ -31,8 +31,8 @@ ENTROPY_MAX    = 0.80      # must match Android gate
 INVALID_LABEL  = "Invalid"  # OOD class name
 
 # Default: sample from val set
-BASE_DIR       = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
-VAL_DIR        = os.path.join(BASE_DIR, "val")
+BASE_DIR       = r"C:\Users\camsy\Downloads\PlantsLeafs\New Plant Diseases Dataset(Augmented)\New Plant Diseases Dataset(Augmented)"
+VAL_DIR        = os.path.join(BASE_DIR, "valid")
 SAMPLE_SIZE    = 20  # images per class when testing val set
 
 

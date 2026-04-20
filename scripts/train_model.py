@@ -64,14 +64,14 @@ from collections import Counter
 # ══════════════════════════════════════════════════════════════════════════════
 # Config
 # ══════════════════════════════════════════════════════════════════════════════
-BASE_DIR       = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
+BASE_DIR       = r"C:\Users\camsy\Downloads\PlantsLeafs\New Plant Diseases Dataset(Augmented)\New Plant Diseases Dataset(Augmented)"
 TRAIN_DIR      = os.path.join(BASE_DIR, "train")
-VAL_DIR        = os.path.join(BASE_DIR, "val")
+VAL_DIR        = os.path.join(BASE_DIR, "valid")
 
 IMG_SIZE       = 224
 BATCH_SIZE     = 32
-EPOCHS_HEAD    = 30          # Phase 2a: frozen backbone, train head only
-EPOCHS_FINE    = 25          # Phase 2b: fine-tune top layers
+EPOCHS_HEAD    = 40          # Phase 2a: frozen backbone, train head only
+EPOCHS_FINE    = 35          # Phase 2b: fine-tune top layers
 SEED           = 42
 MODELS_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
 ASSETS_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
@@ -228,43 +228,82 @@ print(f"\nTrain: {len(train_balanced)}  Val: {len(val_all)}")
 
 # ── tf.data pipeline with heavy augmentation ──────────────────────────────────
 def decode_image(path):
-    """Decode JPEG/PNG with explicit format handling for corrupt-header resilience."""
+    """Decode JPEG/PNG, center-square-crop, then resize to IMG_SIZE×IMG_SIZE.
+
+    Center-square crop matches the Android inference pipeline which also
+    center-crops to a square before scaling to 224×224. This ensures training
+    and inference see the same framing, eliminating aspect-ratio distortion
+    from real-world 9:16 phone photos.
+    """
     raw = tf.io.read_file(path)
-    # Try JPEG first (most common), fall back to PNG via decode_image
-    # decode_jpeg handles most files; decode_image catches the rest
     image = tf.cond(
         tf.io.is_jpeg(raw),
         lambda: tf.image.decode_jpeg(raw, channels=3),
         lambda: tf.image.decode_png(raw, channels=3),
     )
     image.set_shape([None, None, 3])
-    image = tf.image.resize(image, [IMG_SIZE, IMG_SIZE])
-    image = tf.cast(image, tf.float32) / 255.0
+    # Center-square crop — removes letterbox padding from non-square images
+    shape  = tf.shape(image)
+    h, w   = shape[0], shape[1]
+    sq     = tf.minimum(h, w)
+    off_y  = (h - sq) // 2
+    off_x  = (w - sq) // 2
+    image  = image[off_y:off_y+sq, off_x:off_x+sq, :]
+    image  = tf.image.resize(image, [IMG_SIZE, IMG_SIZE])
+    image  = tf.cast(image, tf.float32) / 255.0
     return image
 
 def augment(image):
-    """Heavy augmentation to bridge PlantVillage → real-world phone photos."""
+    """Heavy augmentation to bridge PlantVillage → real-world phone photos.
+
+    Changes vs original:
+    - Crop range widened to 40-100% (simulates far-away and close-up shots)
+    - Random zoom-out padding: randomly places the leaf on a synthetic
+      background (mean color fill) to simulate partial-frame captures
+    - Stronger color jitter (more lighting condition variety)
+    - Coarser Gaussian noise (real phone cameras are noisier)
+    - Random JPEG quality degradation (simulates phone compression)
+    """
     # ── Spatial transforms ──
     image = tf.image.random_flip_left_right(image)
     image = tf.image.random_flip_up_down(image)
     # Random 90° rotation
     k = tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32)
     image = tf.image.rot90(image, k)
-    # Random crop 65-100% then resize back (zoom / framing variation)
-    crop_frac = tf.random.uniform(shape=[], minval=0.65, maxval=1.0)
+
+    # Random crop 40-100% — wider range teaches model to handle
+    # both zoomed-in close-ups and distant whole-plant shots
+    crop_frac = tf.random.uniform(shape=[], minval=0.40, maxval=1.0)
     crop_size = tf.cast(tf.cast(IMG_SIZE, tf.float32) * crop_frac, tf.int32)
+    crop_size = tf.maximum(crop_size, 32)  # safety floor
     image = tf.image.random_crop(image, [crop_size, crop_size, 3])
     image = tf.image.resize(image, [IMG_SIZE, IMG_SIZE])
 
-    # ── Color / HSV transforms ──
-    image = tf.image.random_brightness(image, max_delta=0.3)
-    image = tf.image.random_contrast(image, lower=0.7, upper=1.3)
-    image = tf.image.random_saturation(image, lower=0.6, upper=1.4)
-    image = tf.image.random_hue(image, max_delta=0.08)
+    # Random zoom-out: pad image with border and resize back (30% chance)
+    # Simulates photos where the leaf is small in the frame
+    do_pad = tf.random.uniform(shape=[]) < 0.30
+    pad_frac = tf.random.uniform(shape=[], minval=0.05, maxval=0.20)
+    pad_px   = tf.cast(tf.cast(IMG_SIZE, tf.float32) * pad_frac, tf.int32)
+    padded   = tf.pad(image, [[pad_px, pad_px], [pad_px, pad_px], [0, 0]],
+                      mode="REFLECT")
+    padded   = tf.image.resize(padded, [IMG_SIZE, IMG_SIZE])
+    image    = tf.cond(do_pad, lambda: padded, lambda: image)
 
-    # ── Gaussian noise (simulates camera sensor noise) ──
-    noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=0.03)
+    # ── Color / HSV transforms (stronger for lighting variation) ──
+    image = tf.image.random_brightness(image, max_delta=0.4)
+    image = tf.image.random_contrast(image, lower=0.6, upper=1.5)
+    image = tf.image.random_saturation(image, lower=0.5, upper=1.8)
+    image = tf.image.random_hue(image, max_delta=0.12)
+
+    # ── Gaussian noise (phone camera sensor noise) ──
+    noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=0.05)
     image = image + noise
+
+    # ── Random JPEG quality drop (phone compression artifacts) ──
+    do_jpeg  = tf.random.uniform(shape=[]) < 0.40
+    img_u8   = tf.cast(tf.clip_by_value(image, 0.0, 1.0) * 255, tf.uint8)
+    degraded = tf.cast(tf.image.random_jpeg_quality(img_u8, 60, 95), tf.float32) / 255.0
+    image    = tf.cond(do_jpeg, lambda: degraded, lambda: image)
 
     image = tf.clip_by_value(image, 0.0, 1.0)
     return image
@@ -353,7 +392,7 @@ csv_logger_b = tf.keras.callbacks.CSVLogger(TRAINING_LOG_B, append=False)
 
 print(f"\nPhase 2b — Fine-tuning top 60 layers ({EPOCHS_FINE} epochs, LR=1e-4)...")
 base_model.trainable = True
-for layer in base_model.layers[:-60]:
+for layer in base_model.layers[:-100]:
     layer.trainable = False
 
 model.compile(
@@ -560,7 +599,8 @@ print("\n" + "=" * 60)
 print("TRAINING COMPLETE — Summary")
 print("=" * 60)
 print(f"  Architecture   : MobileNetV2 (ImageNet pretrained)")
-print(f"  Input          : {IMG_SIZE}×{IMG_SIZE} RGB, normalized [0,1]")
+print(f"  Input          : {IMG_SIZE}×{IMG_SIZE} RGB, center-square-crop, normalized [0,1]")
+print(f"  Augmentation   : crop 40-100%, zoom-out pad, JPEG artifacts, strong HSV jitter")
 print(f"  Classes        : {NUM_CLASSES} (4 corn + Invalid)")
 print(f"  Val accuracy   : {val_acc * 100:.2f}%")
 print(f"  Quant accuracy : {quant_acc * 100:.2f}%")

@@ -104,6 +104,11 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
 
+    // ML Kit Subject Segmentation — on-device background removal for scanned leaf photos
+    // Segments the foreground subject (leaf) and replaces background with black.
+    // Uses Play Services unbundled variant; model is downloaded on first use.
+    implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

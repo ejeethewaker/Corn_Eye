@@ -82,16 +82,6 @@ fun AnalyzingScreen(
 
         kotlinx.coroutines.delay(400)
 
-        // Reject low-confidence results — the leaf detector already confirmed this
-        // is a corn leaf, so we only reject if the disease classifier is truly uncertain
-        if (confidence < 0.40f) {
-            val reason = if (diseaseName == "Analysis Unavailable") "not_corn" else "unclear"
-            navController.navigate(Screen.InvalidScan.createRoute(reason)) {
-                popUpTo(Screen.Scan.route)
-            }
-            return@LaunchedEffect
-        }
-
         // Save to Firebase then navigate
         saveAnalysisToFirebase(context, diseaseName, confidence, imageUri)
 

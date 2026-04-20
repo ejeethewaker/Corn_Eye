@@ -180,7 +180,8 @@ CornEye/
 ### Requirements
 - Android Studio Hedgehog or newer
 - Android SDK 35 (minSdk 26 / Android 8.0+)
-- Kotlin 1.9
+- Kotlin 1.9.24
+- Java 17 (compile & JVM target)
 - `google-services.json` placed in `mobile/app/`
 
 ### Features
@@ -251,6 +252,17 @@ npm start        # opens http://localhost:3000
 cd web
 npm run build
 ```
+
+### Deploying to Vercel
+
+The repo root contains a `vercel.json` that handles the build and SPA routing automatically.
+
+```bash
+npm install -g vercel
+vercel --prod      # run from the repo root
+```
+
+Vercel will run `cd web && npm install && npm run build`, serve `web/build/`, and rewrite all routes to `index.html` for client-side routing.
 
 ---
 
@@ -398,8 +410,9 @@ Training logs are saved to `models/training_phase2a_log.csv` and `models/trainin
 
 | Layer | Technology |
 |---|---|
-| Mobile | Kotlin · Jetpack Compose · CameraX · TensorFlow Lite · Firebase |
+| Mobile | Kotlin 1.9.24 · Jetpack Compose (BOM 2024.12.01) · CameraX 1.4.1 · TensorFlow Lite 2.17.0 · ML Kit Subject Segmentation · Coil 2.7 · DataStore · Firebase |
 | Web Admin | React 19 · React Router 7 · Firebase JS SDK 12 |
 | ML Model | MobileNetV2 · TFLite INT8 quantized · PlantVillage dataset |
-| Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage |
-| Build | Gradle 8 (KTS) · Android SDK 35 |
+| Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage (BOM 33.7.0) |
+| Build | Gradle 8 (KTS) · AGP 8.7.3 · Android SDK 35 |
+| Deployment | Vercel (web dashboard) |

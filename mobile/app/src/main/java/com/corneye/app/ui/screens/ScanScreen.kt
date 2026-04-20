@@ -4,6 +4,7 @@ package com.corneye.app.ui.screens
 
 import android.Manifest
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -740,6 +741,34 @@ private fun performAnalysis(
             return@Thread
         }
 
+        // ── Stage 1.5: Background removal for display ─────────────────────
+        // Segment the leaf from its background so all result screens show
+        // the isolated leaf (black background), like a lab photo.
+        // Classification in Stage 2 still uses the ORIGINAL file/URI —
+        // the model was trained without background removal.
+        val displayUriString: String = try {
+            val rawBitmap: Bitmap? = when {
+                imageFile != null -> android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath)
+                imageUri  != null -> context.contentResolver.openInputStream(imageUri)
+                    ?.use { android.graphics.BitmapFactory.decodeStream(it) }
+                else -> null
+            }
+            val segmented = rawBitmap?.let { LeafBackgroundRemover.removeBackground(it) }
+            if (segmented != null) {
+                val segFile = LeafBackgroundRemover.saveToCacheFile(
+                    context, segmented,
+                    "corn_seg_${System.currentTimeMillis()}.jpg"
+                )
+                android.net.Uri.fromFile(segFile).toString()
+            } else {
+                android.util.Log.w("ScanScreen", "BG removal failed — using original image")
+                uriString
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("ScanScreen", "BG removal skipped: ${e.message}")
+            uriString
+        }
+
         // ── Stage 2: Disease classification with OOD gates ───────────────
         // Single model: 5 classes (4 corn diseases + Invalid).
         // OOD gates: reject if class=="Invalid" OR confidence<70% OR entropy>0.8
@@ -777,7 +806,7 @@ private fun performAnalysis(
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             onComplete()
             navController.navigate(
-                Screen.Analyzing.createRoute(label, confidence, uriString)
+                Screen.Analyzing.createRoute(label, confidence, displayUriString)
             )
         }
     }.start()
