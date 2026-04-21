@@ -172,7 +172,6 @@ function Users() {
           <span className="um-col-name">NAME</span>
           <span className="um-col-email">EMAIL</span>
           <span className="um-col-status">STATUS</span>
-          <span className="um-col-action"></span>
         </div>
 
         {/* User Rows */}
@@ -207,11 +206,7 @@ function Users() {
                   {user.status}
                 </span>
               </span>
-              <span className="um-col-action">
-                <button className="um-delete-btn" title="Delete user">
-                  🗑️
-                </button>
-              </span>
+
             </Link>
           ))}
         </div>

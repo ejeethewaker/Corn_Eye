@@ -87,22 +87,19 @@ fun HomeScreen(navController: NavController) {
                 var diseased = 0
                 var healthy = 0
                 snapshot.children.forEach { child ->
-                    val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
-                    if (scanUserId == userId) {
-                        total++
-                        val label = child.child("analysis_label").getValue(String::class.java) ?: "Unknown"
-                        val isHealthyScan = label.equals("Healthy", ignoreCase = true)
-                        if (isHealthyScan) healthy++ else diseased++
-                        allScans.add(
-                            RecentScan(
-                                id = child.key ?: "",
-                                diseaseName = label,
-                                confidence = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
-                                timestamp = child.child("time_scanned").getValue(Long::class.java) ?: 0L,
-                                isHealthy = isHealthyScan
-                            )
+                    total++
+                    val label = child.child("analysis_label").getValue(String::class.java) ?: "Unknown"
+                    val isHealthyScan = label.equals("Healthy", ignoreCase = true)
+                    if (isHealthyScan) healthy++ else diseased++
+                    allScans.add(
+                        RecentScan(
+                            id = child.key ?: "",
+                            diseaseName = label,
+                            confidence = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
+                            timestamp = child.child("time_scanned").getValue(Long::class.java) ?: 0L,
+                            isHealthy = isHealthyScan
                         )
-                    }
+                    )
                 }
                 totalScans = total
                 diseasedCount = diseased
@@ -114,6 +111,7 @@ fun HomeScreen(navController: NavController) {
             }
         }
         val ref = FirebaseHelper.analysisResultsRef()
+            .orderByChild("farmer_id").equalTo(userId)
         ref.addValueEventListener(listener)
         onDispose { ref.removeEventListener(listener) }
     }

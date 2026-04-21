@@ -30,15 +30,13 @@ class CornLeafDetector(private val context: Context) {
         private const val INPUT_SIZE = 224
 
         // ── Color pre-check constants ──
-        // Lowered to accommodate severely diseased leaves (rust, blight) where most
-        // green tissue has been replaced by orange/brown necrotic areas.
-        // Tune these by checking logcat tag "CornLeafDetector" on real phone photos.
-        private const val MIN_GREEN_RATIO          = 0.06f  // was 0.10
-        private const val MIN_GREEN_SATURATION     = 0.14f  // was 0.20
-        private const val MIN_GREEN_DOMINANCE      = 0.23f  // was 0.27
+        // Restored to original values — prevents non-plant images from passing the color gate.
+        private const val MIN_GREEN_RATIO          = 0.10f
+        private const val MIN_GREEN_SATURATION     = 0.20f
+        private const val MIN_GREEN_DOMINANCE      = 0.27f
 
         // Diseased/necrotic leaf tissue (rust, blight) — orange-brown hues
-        private const val MIN_PLANT_COMBINED_RATIO = 0.15f  // was 0.25
+        private const val MIN_PLANT_COMBINED_RATIO = 0.25f
     }
 
     // No model to load — always ready

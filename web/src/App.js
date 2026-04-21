@@ -10,6 +10,7 @@ import Profile from './Profile';
 import UserProfile from './UserProfile';
 import Documentation from './Documentation';
 import DocumentationQuestions from './DocumentationQuestions';
+import Scans from './Scans';
 
 function isAuthenticated() {
   return (
@@ -54,6 +55,10 @@ function App() {
         <Route
           path="/documentation/questions"
           element={<ProtectedRoute><DocumentationQuestions /></ProtectedRoute>}
+        />
+        <Route
+          path="/scans"
+          element={<ProtectedRoute><Scans /></ProtectedRoute>}
         />
       </Routes>
     </Router>

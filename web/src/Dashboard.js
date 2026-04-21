@@ -269,7 +269,7 @@ function Dashboard() {
         </div>
 
         <div className="stats-grid">
-          <div className="stat-card stat-blue">
+          <div className="stat-card stat-blue" style={{ cursor: 'pointer' }} onClick={() => navigate('/users')}>
             <h2 className="stat-number blue">{totalUsers}</h2>
             <p className="stat-label">Total Users</p>
             {usersMonthPct !== null && (
@@ -279,7 +279,7 @@ function Dashboard() {
             )}
           </div>
 
-          <div className="stat-card stat-orange">
+          <div className="stat-card stat-orange" style={{ cursor: 'pointer' }} onClick={() => navigate('/scans')}>
             <h2 className="stat-number orange">{totalScans}</h2>
             <p className="stat-label">Total Scans</p>
             {scansWeekPct !== null && (
@@ -289,7 +289,7 @@ function Dashboard() {
             )}
           </div>
 
-          <div className="stat-card stat-pink">
+          <div className="stat-card stat-pink" style={{ cursor: 'pointer' }} onClick={() => navigate('/scans?filter=disease')}>
             <h2 className="stat-number red">{diseasesDetected}</h2>
             <p className="stat-label">Diseases Detected</p>
             <p className={`stat-change ${diseasesToday > 0 ? 'orange' : 'green'}`}>
@@ -299,7 +299,7 @@ function Dashboard() {
             </p>
           </div>
 
-          <div className="stat-card stat-teal">
+          <div className="stat-card stat-teal" style={{ cursor: 'pointer' }} onClick={() => navigate('/scans?filter=healthy')}>
             <h2 className="stat-number teal">{healthyScans}</h2>
             <p className="stat-label">Healthy Scans</p>
             <p className="stat-change green">

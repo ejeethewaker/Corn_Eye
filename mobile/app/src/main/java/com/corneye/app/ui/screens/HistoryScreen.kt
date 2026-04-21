@@ -58,23 +58,20 @@ fun HistoryScreen(navController: NavController) {
             override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                 val items = mutableListOf<ScanHistoryItem>()
                 snapshot.children.forEach { child ->
-                    val scanUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
-                    if (scanUserId == userId) {
-                        val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
-                        val date = if (timeScanned > 0) Date(timeScanned) else Date()
-                        val label = child.child("analysis_label").getValue(String::class.java) ?: "Unknown"
-                        items.add(
-                            ScanHistoryItem(
-                                id = child.key ?: "",
-                                sampleName = "Corn Leaf Sample",
-                                diseaseName = label,
-                                confidence = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
-                                date = dateFormat.format(date),
-                                time = timeFormat.format(date),
-                                isHealthy = label.equals("Healthy", ignoreCase = true)
-                            )
+                    val timeScanned = child.child("time_scanned").getValue(Long::class.java) ?: 0L
+                    val date = if (timeScanned > 0) Date(timeScanned) else Date()
+                    val label = child.child("analysis_label").getValue(String::class.java) ?: "Unknown"
+                    items.add(
+                        ScanHistoryItem(
+                            id = child.key ?: "",
+                            sampleName = "Corn Leaf Sample",
+                            diseaseName = label,
+                            confidence = child.child("confidence_score").getValue(Float::class.java) ?: 0f,
+                            date = dateFormat.format(date),
+                            time = timeFormat.format(date),
+                            isHealthy = label.equals("Healthy", ignoreCase = true)
                         )
-                    }
+                    )
                 }
                 historyItems = items.sortedByDescending { it.date }
                 isLoading = false
@@ -85,6 +82,7 @@ fun HistoryScreen(navController: NavController) {
             }
         }
         val ref = FirebaseHelper.analysisResultsRef()
+            .orderByChild("farmer_id").equalTo(userId)
         ref.addValueEventListener(listener)
         onDispose { ref.removeEventListener(listener) }
     }

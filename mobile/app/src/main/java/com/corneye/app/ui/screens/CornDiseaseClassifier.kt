@@ -46,9 +46,8 @@ class CornDiseaseClassifier(private val context: Context) {
         private const val TAG = "CornClassifier"
 
         // OOD gate thresholds — must match test_tflite.py
-        // Confidence: 0.55 is a safe starting point for real phone photos;
-        //   tune upward once you have real-world logcat data.
-        private const val CONFIDENCE_MIN = 0.55f
+        // Confidence: raised to 0.72 — rejects uncertain guesses on non-corn subjects.
+        private const val CONFIDENCE_MIN = 0.72f
         // Entropy is normalized to [0,1] by dividing by ln(numClasses),
         //   so 0.80 now correctly means "reject if uncertainty > 80% of max".
         private const val ENTROPY_MAX    = 0.80f

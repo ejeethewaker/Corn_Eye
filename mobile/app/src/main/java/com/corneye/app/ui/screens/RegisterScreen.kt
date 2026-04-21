@@ -237,6 +237,24 @@ fun RegisterScreen(navController: NavController) {
                                 )
                             )
 
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Password requirements checklist
+                            if (password.isNotEmpty()) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = "Password must contain:",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextPrimary,
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    )
+                                    PasswordRequirement("At least 8 characters", password.length >= 8)
+                                    PasswordRequirement("One uppercase letter", password.any { it.isUpperCase() })
+                                    PasswordRequirement("One number or special character", password.any { it.isDigit() || !it.isLetterOrDigit() })
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(14.dp))
 
                             // Confirm Password
@@ -310,8 +328,14 @@ fun RegisterScreen(navController: NavController) {
                                         !trimmedPhone.matches(Regex("^[0-9]{11}$")) -> {
                                             errorMessage = "Phone number must be exactly 11 digits"
                                         }
-                                        password.length < 6 -> {
-                                            errorMessage = "Password must be at least 6 characters"
+                                        password.length < 8 -> {
+                                            errorMessage = "Password must be at least 8 characters"
+                                        }
+                                        !password.any { it.isUpperCase() } -> {
+                                            errorMessage = "Password must contain an uppercase letter"
+                                        }
+                                        !password.any { it.isDigit() || !it.isLetterOrDigit() } -> {
+                                            errorMessage = "Password must contain a number or special character"
                                         }
                                         password != confirmPassword -> {
                                             errorMessage = "Passwords do not match"
@@ -450,5 +474,26 @@ fun RegisterScreen(navController: NavController) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PasswordRequirement(text: String, isMet: Boolean) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 2.dp, horizontal = 8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(if (isMet) GreenPrimary else TextHint)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = text,
+            fontSize = 13.sp,
+            color = if (isMet) GreenPrimary else TextSecondary
+        )
     }
 }
