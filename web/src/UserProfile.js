@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { database } from './firebase';
-import { ref, get, update } from 'firebase/database';
+import { ref, get, update, query, orderByChild, equalTo } from 'firebase/database';
 import './UserProfile.css';
 import './Dashboard.css';
 
@@ -21,19 +21,27 @@ function UserProfile() {
   const [adminInitials, setAdminInitials] = useState('AD');
 
   useEffect(() => {
-    // Load admin info for sidebar
+    // Load admin info for sidebar — show cached value instantly, refresh in background
     const adminEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail');
+    const cachedName = localStorage.getItem('adminCachedName');
+    const cachedInitials = localStorage.getItem('adminCachedInitials');
+    if (cachedName) {
+      setAdminName(cachedName);
+      setAdminInitials(cachedInitials || 'AD');
+    }
     if (adminEmail) {
-      const adminsRef = ref(database, 'admins');
-      get(adminsRef).then(snapshot => {
+      get(ref(database, 'admins')).then(snapshot => {
         if (snapshot.exists()) {
           const admins = snapshot.val();
           const matched = Object.values(admins).find(a => a.email === adminEmail);
           if (matched) {
-            const name = matched.fullname || matched.name || 'Admin User';
-            setAdminName(name);
+            const name = matched.fullName || matched.fullname || matched.name || 'Admin User';
             const parts = name.split(' ');
-            setAdminInitials(parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() : name.substring(0, 2).toUpperCase());
+            const initials = parts.length >= 2 ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase() : name.substring(0, 2).toUpperCase();
+            setAdminName(name);
+            setAdminInitials(initials);
+            localStorage.setItem('adminCachedName', name);
+            localStorage.setItem('adminCachedInitials', initials);
           }
         }
       });
@@ -65,19 +73,17 @@ function UserProfile() {
         setLoading(false);
       }).catch(() => setLoading(false));
 
-      // Load scan stats
-      const resultsRef = ref(database, 'analysis_results');
-      get(resultsRef).then(snapshot => {
+      // Load scan stats — query only this farmer's results instead of all records
+      const resultsQuery = query(ref(database, 'analysis_results'), orderByChild('farmer_id'), equalTo(id));
+      get(resultsQuery).then(snapshot => {
         if (snapshot.exists()) {
           let scans = 0;
           let diseases = 0;
-          const results = snapshot.val();
-          Object.values(results).forEach(r => {
-            if (r.farmer_id === id) {
-              scans++;
-              const label = r.analysis_label || '';
-              if (label && label.toLowerCase() !== 'healthy') diseases++;
-            }
+          snapshot.forEach(child => {
+            const r = child.val();
+            scans++;
+            const label = r.analysis_label || '';
+            if (label && label.toLowerCase() !== 'healthy') diseases++;
           });
           setTotalScans(scans);
           setDiseasesFound(diseases);
@@ -89,12 +95,12 @@ function UserProfile() {
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
     localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminCachedName');
+    localStorage.removeItem('adminCachedInitials');
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
-  };
-
-  const handleToggle = () => {
+  }; => {
     const newStatus = !isActive;
     setIsActive(newStatus);
     if (id) {

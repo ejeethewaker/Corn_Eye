@@ -16,6 +16,13 @@ function Documentation() {
     const loadAdmin = async () => {
       try {
         const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+        // Show cached name instantly
+        const cachedName = localStorage.getItem('adminCachedName');
+        const cachedInitials = localStorage.getItem('adminCachedInitials');
+        if (cachedName) {
+          setAdminName(cachedName);
+          setAdminInitials(cachedInitials || 'A');
+        }
         const adminsRef = ref(database, 'admins');
         const adminsSnap = await get(adminsRef);
         if (adminsSnap.exists()) {
@@ -23,8 +30,11 @@ function Documentation() {
           const matched = Object.values(admins).find((a) => a.email === storedEmail);
           if (matched) {
             const name = matched.fullName || 'Admin';
+            const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
             setAdminName(name);
-            setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
+            setAdminInitials(initials);
+            localStorage.setItem('adminCachedName', name);
+            localStorage.setItem('adminCachedInitials', initials);
           }
         }
       } catch (err) {
@@ -37,6 +47,8 @@ function Documentation() {
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
     localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminCachedName');
+    localStorage.removeItem('adminCachedInitials');
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');

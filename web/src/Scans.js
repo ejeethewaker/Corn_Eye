@@ -43,15 +43,24 @@ function Scans() {
   const [selectedScan, setSelectedScan] = useState(null);
 
   useEffect(() => {
-    // Admin profile
+    // Admin profile — show cached value instantly, refresh in background
     const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+    const cachedName = localStorage.getItem('adminCachedName');
+    const cachedInitials = localStorage.getItem('adminCachedInitials');
+    if (cachedName) {
+      setAdminName(cachedName);
+      setAdminInitials(cachedInitials || 'A');
+    }
     get(ref(database, 'admins')).then((snap) => {
       if (snap.exists()) {
         const matched = Object.values(snap.val()).find((a) => a.email === storedEmail);
         if (matched) {
           const name = matched.fullName || 'Admin';
+          const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
           setAdminName(name);
-          setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
+          setAdminInitials(initials);
+          localStorage.setItem('adminCachedName', name);
+          localStorage.setItem('adminCachedInitials', initials);
         }
       }
     }).catch(() => {});
@@ -85,12 +94,12 @@ function Scans() {
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
     localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminCachedName');
+    localStorage.removeItem('adminCachedInitials');
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
   };
-
-  // Apply filter
   const filtered = allScans.filter((s) => {
     const label = (s.analysis_label || '').toLowerCase();
     if (filterParam === 'disease' && !isDiseaseLabel(label)) return false;

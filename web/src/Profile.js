@@ -90,12 +90,12 @@ function Profile() {
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
     localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminCachedName');
+    localStorage.removeItem('adminCachedInitials');
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
-  };
-
-  const handleSave = async (e) => {
+  }; (e) => {
     e.preventDefault();
     setSaving(true);
     try {
