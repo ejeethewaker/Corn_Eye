@@ -468,6 +468,114 @@ function Documentation() {
             </table>
           </div>
         </section>
+
+        {/* ── Firebase Functions Backend ── */}
+        <section className="doc-section">
+          <h2 className="doc-section-title">Firebase Functions Backend</h2>
+          <p className="doc-text">
+            CornEye uses two Firebase Cloud Functions (Node.js 20, us-central1) to handle the admin
+            forgot-password OTP flow. These run server-side so that Gmail credentials are never
+            exposed to the browser.
+          </p>
+
+          <div className="doc-card-grid">
+            <div className="doc-card">
+              <div className="doc-card-icon doc-icon-blue">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+              </div>
+              <h3>sendOtp</h3>
+              <p>Receives the admin's email, verifies it exists in the <code>/admins</code> node, generates a 6-digit OTP, stores it at <code>/otps/&lt;emailKey&gt;</code> with a 10-minute expiry, then sends a styled HTML email via Gmail SMTP (Nodemailer).</p>
+            </div>
+            <div className="doc-card">
+              <div className="doc-card-icon doc-icon-green">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+              <h3>verifyOtpAndReset</h3>
+              <p>Receives the email, OTP, and new password. Checks the OTP hasn't expired and matches the stored value. If valid, it updates <code>/admins/&lt;id&gt;/password</code> and deletes the OTP record so it can't be reused.</p>
+            </div>
+          </div>
+
+          <div className="doc-steps" style={{ marginTop: '24px' }}>
+            <div className="doc-step">
+              <div className="doc-step-number">1</div>
+              <div className="doc-step-content">
+                <h4>Admin clicks "Forgot Password?"</h4>
+                <p>The login page shows an email entry form. When submitted, it calls the <code>sendOtp</code> Firebase Function via an HTTPS callable request.</p>
+              </div>
+            </div>
+            <div className="doc-step">
+              <div className="doc-step-number">2</div>
+              <div className="doc-step-content">
+                <h4>OTP email is sent</h4>
+                <p>The function generates a random 6-digit code, saves it to Firebase Realtime Database with a 10-minute expiry, and sends it to the admin's registered email using Gmail SMTP. The Gmail App Password is stored in a <code>.env</code> file on the server — never in the browser.</p>
+              </div>
+            </div>
+            <div className="doc-step">
+              <div className="doc-step-number">3</div>
+              <div className="doc-step-content">
+                <h4>Admin enters the OTP</h4>
+                <p>A 6-box input appears on screen. The admin types or pastes the code. A 60-second countdown shows how long is left, with a resend option once it expires.</p>
+              </div>
+            </div>
+            <div className="doc-step">
+              <div className="doc-step-number">4</div>
+              <div className="doc-step-content">
+                <h4>Password is reset</h4>
+                <p>After entering the OTP, the admin sets a new password. The <code>verifyOtpAndReset</code> function validates the OTP, updates the password in Firebase, and deletes the OTP record. The admin is then returned to the login screen.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Admin Account Management ── */}
+        <section className="doc-section">
+          <h2 className="doc-section-title">Admin Account Management</h2>
+          <p className="doc-text">
+            The admin web dashboard includes account control features that let administrators
+            manage farmer access in real time.
+          </p>
+
+          <div className="doc-card-grid">
+            <div className="doc-card">
+              <div className="doc-card-icon doc-icon-orange">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="7" r="4"/>
+                  <path d="M5.5 21a6.5 6.5 0 0113 0"/>
+                </svg>
+              </div>
+              <h3>Account Deactivation Toggle</h3>
+              <p>On the User Profile page, admins can switch any farmer account between <strong>Active</strong> and <strong>Deactivated</strong>. The change is written to <code>/farmers/&lt;id&gt;/status</code> in Firebase immediately.</p>
+            </div>
+            <div className="doc-card">
+              <div className="doc-card-icon doc-icon-blue">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0110 0v4"/>
+                </svg>
+              </div>
+              <h3>Login Enforcement</h3>
+              <p>At login, the mobile app always fetches the account status directly from the server (bypassing any local cache). If the status is not <code>"active"</code>, login is blocked with a clear message.</p>
+            </div>
+            <div className="doc-card">
+              <div className="doc-card-icon doc-icon-green">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8h1a4 4 0 010 8h-1"/>
+                  <path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/>
+                  <line x1="6" y1="1" x2="6" y2="4"/>
+                  <line x1="10" y1="1" x2="10" y2="4"/>
+                  <line x1="14" y1="1" x2="14" y2="4"/>
+                </svg>
+              </div>
+              <h3>Real-Time Session Kick</h3>
+              <p>If a farmer is already inside the app when their account is deactivated, a real-time Firebase listener on the <code>HomeScreen</code> detects the status change instantly and redirects them to the login screen, clearing their local session.</p>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   );
