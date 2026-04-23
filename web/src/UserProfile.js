@@ -100,7 +100,9 @@ function UserProfile() {
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
-  }; => {
+  };
+
+  const handleToggle = () => {
     const newStatus = !isActive;
     setIsActive(newStatus);
     if (id) {

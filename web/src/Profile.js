@@ -95,7 +95,9 @@ function Profile() {
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
-  }; (e) => {
+  };
+
+  const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {

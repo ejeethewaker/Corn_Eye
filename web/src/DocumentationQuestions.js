@@ -326,7 +326,9 @@ function DocumentationQuestions() {
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
-  }; = (sectionIdx, itemIdx) => {
+  };
+
+  const toggleQuestion => {
     const key = `${sectionIdx}-${itemIdx}`;
     setOpenIndex((prev) => (prev === key ? null : key));
   };

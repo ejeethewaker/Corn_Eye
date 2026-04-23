@@ -90,7 +90,10 @@ function Users() {
     sessionStorage.removeItem('adminEmail');
     navigate('/');
   };
-      {/* Sidebar */}
+
+  return (
+    <div className="dashboard-container">
+      {/* Sidebar */}}
       <aside className="dashboard-sidebar">
         <div className="sidebar-top">
           <div className="sidebar-brand">
