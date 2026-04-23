@@ -328,7 +328,7 @@ function DocumentationQuestions() {
     navigate('/');
   };
 
-  const toggleQuestion => {
+  const toggleQuestion = (sectionIdx, itemIdx) => {
     const key = `${sectionIdx}-${itemIdx}`;
     setOpenIndex((prev) => (prev === key ? null : key));
   };
