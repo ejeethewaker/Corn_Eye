@@ -46,12 +46,20 @@ class CornDiseaseClassifier(private val context: Context) {
         private const val TAG = "CornClassifier"
 
         // OOD gate thresholds — must match test_tflite.py
-        // Confidence: raised to 0.72 — rejects uncertain guesses on non-corn subjects.
-        private const val CONFIDENCE_MIN = 0.72f
+        // Confidence: 0.60 — real-world field photos naturally score lower than
+        // PlantVillage lab images; 0.72 was too aggressive and rejected valid scans.
+        private const val CONFIDENCE_MIN = 0.60f
         // Entropy is normalized to [0,1] by dividing by ln(numClasses),
         //   so 0.80 now correctly means "reject if uncertainty > 80% of max".
         private const val ENTROPY_MAX    = 0.80f
         private const val INVALID_LABEL  = "Invalid"
+
+        // Minimum confidence for forced-corn fallback classification.
+        // Used when the color pre-filter passed (image has corn-like colors) but the
+        // model predicted Invalid due to domain shift (trained on lab photos, tested
+        // on real-world field photos).  A much lower bar is appropriate here because
+        // the color filter already established that the image looks like a plant.
+        private const val FORCE_CORN_CONFIDENCE_MIN = 0.10f
     }
 
     data class Result(
@@ -125,74 +133,78 @@ class CornDiseaseClassifier(private val context: Context) {
             android.util.Log.e(TAG, "classify() called but model not ready")
             return null
         }
-        val interp = interpreter ?: run {
-            android.util.Log.e(TAG, "Interpreter is null")
-            return null
-        }
-
-        // Gallery/camera photos on modern Android may be HARDWARE bitmaps.
-        // HARDWARE bitmaps cannot be read with getPixels() — must copy to ARGB_8888 first.
-        val softBitmap: Bitmap = if (bitmap.config == Bitmap.Config.HARDWARE ||
-                                     bitmap.config != Bitmap.Config.ARGB_8888) {
-            android.util.Log.d(TAG, "Converting bitmap config ${bitmap.config} → ARGB_8888")
-            bitmap.copy(Bitmap.Config.ARGB_8888, false)
-        } else bitmap
-
-        // Center-square crop before scaling — avoids aspect ratio distortion when
-        // feeding tall 9:16 phone photos into the square 224×224 model input.
-        // Crops the largest centered square from the image, then scales to 224×224.
-        val squareSize = minOf(softBitmap.width, softBitmap.height)
-        val cropX = (softBitmap.width  - squareSize) / 2
-        val cropY = (softBitmap.height - squareSize) / 2
-        val croppedBitmap = Bitmap.createBitmap(softBitmap, cropX, cropY, squareSize, squareSize)
-
-        // Scale to 224×224 (matches training resize)
-        val scaled = Bitmap.createScaledBitmap(croppedBitmap, INPUT_SIZE, INPUT_SIZE, true)
-        // Ensure scaled result is also software-backed
-        val argbScaled: Bitmap = if (scaled.config != Bitmap.Config.ARGB_8888)
-            scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
-
-        // Build float32 input buffer: 1×224×224×3
-        // Normalize to [0, 1] — identical to Python's: image / 255.0
-        val byteBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3)
-        byteBuffer.order(ByteOrder.nativeOrder())
-        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
-        argbScaled.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
-        for (pixel in pixels) {
-            byteBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)  // R
-            byteBuffer.putFloat(((pixel shr 8)  and 0xFF) / 255.0f)  // G
-            byteBuffer.putFloat((pixel          and 0xFF) / 255.0f)  // B
-        }
-
-        // Run inference
-        val numModelOutputs = interp.getOutputTensor(0).shape()[1]
-        val outputArray = Array(1) { FloatArray(numModelOutputs) }
-        interp.run(byteBuffer, outputArray)
-        val scores = outputArray[0]
-
-        val scoresLog = scores.mapIndexed { i, s ->
-            "${labels.getOrElse(i) { "?" }}=${"%.3f".format(s)}"
-        }.joinToString(", ")
-        android.util.Log.d(TAG, "Scores: [$scoresLog]")
-
-        if (scores.isEmpty()) return null
-
-        // Find best class
+        val scores = runInference(bitmap) ?: return null
         val bestIdx = scores.indices.maxByOrNull { scores[it] } ?: return null
         val label = labels.getOrElse(bestIdx) { "Unknown" }
         val confidence = scores[bestIdx]
-
-        // Compute Shannon entropy for uncertainty detection
         val ent = shannonEntropy(scores)
-
-        // OOD gates
         val isInvalid = label.equals(INVALID_LABEL, ignoreCase = true)
         val isValid = !isInvalid && confidence >= CONFIDENCE_MIN && ent <= ENTROPY_MAX
-
         android.util.Log.d(TAG, "Predicted: $label @ ${"%.3f".format(confidence)}, " +
             "entropy=${"%.3f".format(ent)}, isValid=$isValid")
-
         return Result(label, confidence, ent, isValid)
+    }
+
+    /**
+     * Returns the highest-scoring non-Invalid class, ignoring the Invalid label entirely.
+     *
+     * Used as a last-resort fallback when:
+     *   1. The color pre-filter PASSED (image has corn-like green colors), AND
+     *   2. The normal classify() rejected (predicted Invalid or low confidence).
+     *
+     * The model was trained on PlantVillage lab images (isolated leaves, white backgrounds)
+     * but real-world field photos (natural lighting, multiple leaves, hands, soil) look very
+     * different.  The model mistakes these conditions for "Invalid", but the color filter
+     * already confirmed the image contains a corn-like plant.
+     *
+     * Uses FORCE_CORN_CONFIDENCE_MIN (0.10) instead of CONFIDENCE_MIN (0.60).
+     */
+    fun classifyForceCorn(bitmap: Bitmap): Result? {
+        if (!isReady) {
+            android.util.Log.e(TAG, "classifyForceCorn() called but model not ready")
+            return null
+        }
+        val scores = runInference(bitmap) ?: return null
+        val invalidIdx = labels.indexOfFirst { it.equals(INVALID_LABEL, ignoreCase = true) }
+        val bestCornIdx = scores.indices
+            .filter { it != invalidIdx }
+            .maxByOrNull { scores[it] } ?: return null
+        val label = labels[bestCornIdx]
+        val confidence = scores[bestCornIdx]
+        val ent = shannonEntropy(scores)
+        val isValid = confidence >= FORCE_CORN_CONFIDENCE_MIN
+        android.util.Log.d(TAG, "ForceCorn: $label @ ${"%.3f".format(confidence)}, " +
+            "entropy=${"%.3f".format(ent)}, isValid=$isValid")
+        return Result(label, confidence, ent, isValid)
+    }
+
+    fun classifyForceCornFromFile(file: java.io.File): Result? {
+        val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, opts) ?: run {
+            android.util.Log.e(TAG, "decodeFile returned null for ${file.absolutePath}")
+            return null
+        }
+        return classifyForceCorn(bitmap)
+    }
+
+    fun classifyForceCornFromUri(uri: Uri): Result? {
+        return try {
+            val stream = context.contentResolver.openInputStream(uri) ?: run {
+                android.util.Log.e(TAG, "openInputStream returned null for $uri")
+                return null
+            }
+            val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
+            val bitmap = BitmapFactory.decodeStream(stream, null, opts)
+            stream.close()
+            if (bitmap == null) {
+                android.util.Log.e(TAG, "decodeStream returned null for $uri")
+                return null
+            }
+            classifyForceCorn(bitmap)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "classifyForceCornFromUri error: ${e.message}", e)
+            null
+        }
     }
 
     /** Classify from a JPEG/PNG file on disk. */
@@ -231,6 +243,51 @@ class CornDiseaseClassifier(private val context: Context) {
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Runs the full preprocessing pipeline and TFLite inference.
+     * Returns the raw softmax score array, or null on error.
+     * Shared by classify() and classifyForceCorn().
+     */
+    private fun runInference(bitmap: Bitmap): FloatArray? {
+        val interp = interpreter ?: run {
+            android.util.Log.e(TAG, "Interpreter is null")
+            return null
+        }
+        // Gallery/camera photos on modern Android may be HARDWARE bitmaps.
+        val softBitmap: Bitmap = if (bitmap.config == Bitmap.Config.HARDWARE ||
+                                     bitmap.config != Bitmap.Config.ARGB_8888) {
+            android.util.Log.d(TAG, "Converting bitmap config ${bitmap.config} → ARGB_8888")
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } else bitmap
+        // Center-square crop then scale to 224×224
+        val squareSize = minOf(softBitmap.width, softBitmap.height)
+        val cropX = (softBitmap.width  - squareSize) / 2
+        val cropY = (softBitmap.height - squareSize) / 2
+        val croppedBitmap = Bitmap.createBitmap(softBitmap, cropX, cropY, squareSize, squareSize)
+        val scaled = Bitmap.createScaledBitmap(croppedBitmap, INPUT_SIZE, INPUT_SIZE, true)
+        val argbScaled: Bitmap = if (scaled.config != Bitmap.Config.ARGB_8888)
+            scaled.copy(Bitmap.Config.ARGB_8888, false) else scaled
+        // Build float32 input buffer: 1×224×224×3, normalized to [0,1]
+        val byteBuffer = ByteBuffer.allocateDirect(4 * INPUT_SIZE * INPUT_SIZE * 3)
+        byteBuffer.order(ByteOrder.nativeOrder())
+        val pixels = IntArray(INPUT_SIZE * INPUT_SIZE)
+        argbScaled.getPixels(pixels, 0, INPUT_SIZE, 0, 0, INPUT_SIZE, INPUT_SIZE)
+        for (pixel in pixels) {
+            byteBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)
+            byteBuffer.putFloat(((pixel shr 8)  and 0xFF) / 255.0f)
+            byteBuffer.putFloat((pixel          and 0xFF) / 255.0f)
+        }
+        val numModelOutputs = interp.getOutputTensor(0).shape()[1]
+        val outputArray = Array(1) { FloatArray(numModelOutputs) }
+        interp.run(byteBuffer, outputArray)
+        val scores = outputArray[0]
+        val scoresLog = scores.mapIndexed { i, s ->
+            "${labels.getOrElse(i) { "?" }}=${"%.3f".format(s)}"
+        }.joinToString(", ")
+        android.util.Log.d(TAG, "Scores: [$scoresLog]")
+        return if (scores.isEmpty()) null else scores
+    }
 
     /**
      * Normalized Shannon entropy of a probability distribution.

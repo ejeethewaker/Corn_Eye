@@ -5,8 +5,8 @@ from PIL import Image
 import random
 
 # Configuration
-BASE_DIR = r"C:\Users\camsy\Downloads\PlantsLeafs\New Plant Diseases Dataset(Augmented)\New Plant Diseases Dataset(Augmented)"
-VAL_DIR = os.path.join(BASE_DIR, "valid")
+BASE_DIR = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
+VAL_DIR = os.path.join(BASE_DIR, "val")
 _MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
 KERAS_MODEL_PATH = os.path.join(_MODELS_DIR, "corn_disease_keras_model.keras")
 TFLITE_MODEL_PATH = os.path.join(_MODELS_DIR, "corn_disease_model.tflite")

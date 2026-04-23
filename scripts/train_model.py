@@ -55,18 +55,23 @@ Output:
 """
 
 import os
+import sys
 import random
 import shutil
 import numpy as np
 import tensorflow as tf
 from collections import Counter
 
+# Force UTF-8 output on Windows (fixes UnicodeEncodeError for emoji characters)
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Config
 # ══════════════════════════════════════════════════════════════════════════════
-BASE_DIR       = r"C:\Users\camsy\Downloads\PlantsLeafs\New Plant Diseases Dataset(Augmented)\New Plant Diseases Dataset(Augmented)"
+BASE_DIR       = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
 TRAIN_DIR      = os.path.join(BASE_DIR, "train")
-VAL_DIR        = os.path.join(BASE_DIR, "valid")
+VAL_DIR        = os.path.join(BASE_DIR, "val")
 
 IMG_SIZE       = 224
 BATCH_SIZE     = 32
@@ -87,6 +92,9 @@ TARGET_VAL_ACC   = 0.95      # Phase 3: target >95% validation accuracy
 TARGET_QUANT_ACC = 0.94      # Phase 4: quantized model must keep >94%
 QUANT_VAL_SAMPLE = 500       # Number of images for quantized accuracy check
 REP_DATASET_SIZE = 500       # Representative images for INT8 calibration
+# Keep Invalid class at or below corn-class scale so it cannot dominate target size.
+# 1.0 means Invalid is capped to the largest corn class count.
+INVALID_CAP_RATIO = 1.0
 
 CORN_FOLDER_MAP = {
     "Corn_(maize)___Common_rust_"                        : "Common Rust",
@@ -148,15 +156,15 @@ if not train_corn:
         f"Check CORN_FOLDER_MAP folder names match your dataset."
     )
 
-# Cap Invalid class to 2x the largest corn class to prevent massive imbalance
+# Cap Invalid class so it cannot exceed the largest corn class.
 corn_by_class = {}
 for _, label in train_corn:
     corn_by_class[label] = corn_by_class.get(label, 0) + 1
 max_corn_count = max(corn_by_class.values()) if corn_by_class else 2000
-MAX_INVALID = max_corn_count * 2
+MAX_INVALID = int(max_corn_count * INVALID_CAP_RATIO)
 if len(train_invalid) > MAX_INVALID:
     train_invalid = random.sample(train_invalid, MAX_INVALID)
-    print(f"  Invalid class capped to {MAX_INVALID} samples (2x largest corn class)")
+    print(f"  Invalid class capped to {MAX_INVALID} samples ({INVALID_CAP_RATIO:.2f}x largest corn class)")
 
 print(f"Loading val split:   {VAL_DIR}")
 val_corn, val_invalid = collect_paths(VAL_DIR)
@@ -171,15 +179,15 @@ if not val_corn:
 if not val_invalid:
     print("  ⚠️  No invalid val images found — Invalid class recall cannot be measured.")
 
-# Cap val Invalid proportionally
+# Cap val Invalid using the same ratio
 val_corn_counts = {}
 for _, label in val_corn:
     val_corn_counts[label] = val_corn_counts.get(label, 0) + 1
 max_val_corn = max(val_corn_counts.values()) if val_corn_counts else 500
-MAX_VAL_INVALID = max_val_corn * 2
+MAX_VAL_INVALID = int(max_val_corn * INVALID_CAP_RATIO)
 if len(val_invalid) > MAX_VAL_INVALID:
     val_invalid = random.sample(val_invalid, MAX_VAL_INVALID)
-    print(f"  Invalid val class capped to {MAX_VAL_INVALID} samples")
+    print(f"  Invalid val class capped to {MAX_VAL_INVALID} samples ({INVALID_CAP_RATIO:.2f}x largest corn val class)")
 
 train_all = train_corn + train_invalid
 val_all   = val_corn + val_invalid
@@ -203,17 +211,22 @@ for path, label in train_all:
     train_by_class.setdefault(label, []).append((path, label))
 
 class_counts = {k: len(v) for k, v in train_by_class.items()}
-max_count = max(class_counts.values())
+corn_target_count = max(class_counts.get(i, 0) for i in range(NUM_CLASSES) if i != INVALID_IDX)
+
+# Safety clamp in case input data changed unexpectedly.
+if class_counts.get(INVALID_IDX, 0) > corn_target_count:
+    train_by_class[INVALID_IDX] = random.sample(train_by_class[INVALID_IDX], corn_target_count)
+    class_counts[INVALID_IDX] = corn_target_count
 
 print("\nOriginal class distribution:")
 for idx in sorted(class_counts):
     print(f"  {CLASSES[idx]:25s}: {class_counts[idx]}")
 
-# Oversample minority classes to match the largest class
+# Oversample minority classes to match the largest CORN class only.
 train_balanced = []
 for label_idx, samples in train_by_class.items():
-    if len(samples) < max_count:
-        oversampled = samples + random.choices(samples, k=max_count - len(samples))
+    if len(samples) < corn_target_count:
+        oversampled = samples + random.choices(samples, k=corn_target_count - len(samples))
         train_balanced.extend(oversampled)
     else:
         train_balanced.extend(samples)
@@ -224,6 +237,7 @@ balanced_counts = Counter(l for _, l in train_balanced)
 print("\nBalanced class distribution:")
 for idx in sorted(balanced_counts):
     print(f"  {CLASSES[idx]:25s}: {balanced_counts[idx]}")
+print(f"  Target per class           : {corn_target_count} (from largest corn class)")
 print(f"\nTrain: {len(train_balanced)}  Val: {len(val_all)}")
 
 # ── tf.data pipeline with heavy augmentation ──────────────────────────────────
@@ -305,6 +319,42 @@ def augment(image):
     degraded = tf.cast(tf.image.random_jpeg_quality(img_u8, 60, 95), tf.float32) / 255.0
     image    = tf.cond(do_jpeg, lambda: degraded, lambda: image)
 
+    # ── Random Gaussian blur (simulates phone camera focus variation) ────────
+    # 35% chance — forces the model to learn disease morphology from slightly
+    # blurry images, not just sharp PlantVillage textures.
+    do_blur = tf.random.uniform(shape=[]) < 0.35
+    kernel  = tf.constant([[1, 2, 1], [2, 4, 2], [1, 2, 1]], dtype=tf.float32) / 16.0
+    kernel  = tf.reshape(kernel, [3, 3, 1, 1])
+    kernel  = tf.tile(kernel, [1, 1, 3, 1])
+    blurred = tf.nn.depthwise_conv2d(
+        tf.expand_dims(image, 0), kernel, strides=[1, 1, 1, 1], padding='SAME'
+    )[0]
+    image   = tf.cond(do_blur, lambda: blurred, lambda: image)
+
+    # ── CutOut: erase a random rectangle (forces holistic feature learning) ──
+    # 40% chance — prevents the model from relying on a single discriminative
+    # spot. Without cutout, MobileNetV2-style models latch onto PlantVillage
+    # background style rather than disease lesion patterns.
+    do_cut   = tf.random.uniform(shape=[]) < 0.40
+    cut_frac = tf.random.uniform(shape=[], minval=0.10, maxval=0.35)
+    cut_size = tf.cast(tf.cast(IMG_SIZE, tf.float32) * cut_frac, tf.int32)
+    max_pos  = IMG_SIZE - cut_size
+    cut_y    = tf.minimum(
+        tf.random.uniform(shape=[], minval=0, maxval=IMG_SIZE, dtype=tf.int32), max_pos
+    )
+    cut_x    = tf.minimum(
+        tf.random.uniform(shape=[], minval=0, maxval=IMG_SIZE, dtype=tf.int32), max_pos
+    )
+    yy_grid, xx_grid = tf.meshgrid(tf.range(IMG_SIZE), tf.range(IMG_SIZE), indexing='ij')
+    in_box  = tf.logical_and(
+        tf.logical_and(yy_grid >= cut_y, yy_grid < cut_y + cut_size),
+        tf.logical_and(xx_grid >= cut_x, xx_grid < cut_x + cut_size),
+    )
+    mask    = tf.cast(tf.logical_not(in_box), tf.float32)[:, :, tf.newaxis]
+    mean_col = tf.reduce_mean(image, axis=[0, 1], keepdims=True)
+    cutout   = image * mask + mean_col * (1.0 - mask)
+    image    = tf.cond(do_cut, lambda: cutout, lambda: image)
+
     image = tf.clip_by_value(image, 0.0, 1.0)
     return image
 
@@ -331,8 +381,10 @@ print("\n" + "=" * 60)
 print("PHASE 2 — Architecture & Training")
 print("=" * 60)
 
-print("\nBuilding MobileNetV2 model (ImageNet pretrained)...")
-base_model = tf.keras.applications.MobileNetV2(
+print("\nBuilding EfficientNetB0 model (ImageNet pretrained)...")
+# EfficientNetB0: better domain generalization than MobileNetV2 via compound scaling
+# and squeeze-and-excitation blocks. Comparable mobile size (~6 MB TFLite).
+base_model = tf.keras.applications.EfficientNetB0(
     input_shape=(IMG_SIZE, IMG_SIZE, 3),
     include_top=False,
     weights="imagenet",
@@ -340,7 +392,8 @@ base_model = tf.keras.applications.MobileNetV2(
 base_model.trainable = False
 
 inputs  = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
-x       = tf.keras.layers.Rescaling(scale=2.0, offset=-1.0)(inputs)  # [0,1]→[-1,1]
+# EfficientNetB0 expects [0, 255]; our data pipeline outputs [0, 1]
+x       = tf.keras.layers.Rescaling(scale=255.0)(inputs)  # [0,1]→[0,255]
 x       = base_model(x, training=False)
 x       = tf.keras.layers.GlobalAveragePooling2D()(x)
 x       = tf.keras.layers.BatchNormalization()(x)
@@ -351,9 +404,12 @@ x       = tf.keras.layers.Dropout(0.3)(x)
 outputs = tf.keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
 model   = tf.keras.Model(inputs, outputs)
 
+# Label smoothing=0.1 prevents the model from becoming overconfident on
+# PlantVillage-style training images, which improves generalization to
+# real-world field photos that look different from the training set.
 model.compile(
     optimizer=tf.keras.optimizers.Adam(1e-3),
-    loss="categorical_crossentropy",
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
     metrics=["accuracy"],
 )
 model.summary()
@@ -390,14 +446,16 @@ early_stop_cb_b = tf.keras.callbacks.EarlyStopping(
 )
 csv_logger_b = tf.keras.callbacks.CSVLogger(TRAINING_LOG_B, append=False)
 
-print(f"\nPhase 2b — Fine-tuning top 60 layers ({EPOCHS_FINE} epochs, LR=1e-4)...")
+print(f"\nPhase 2b — Fine-tuning top 150 layers ({EPOCHS_FINE} epochs, LR=1e-4)...")
 base_model.trainable = True
-for layer in base_model.layers[:-100]:
+# Unfreeze more layers (150 vs 100) to give EfficientNetB0 more
+# capacity to adapt its SE blocks and depthwise convs to corn disease patterns.
+for layer in base_model.layers[:-150]:
     layer.trainable = False
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(1e-4),
-    loss="categorical_crossentropy",
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
     metrics=["accuracy"],
 )
 model.fit(

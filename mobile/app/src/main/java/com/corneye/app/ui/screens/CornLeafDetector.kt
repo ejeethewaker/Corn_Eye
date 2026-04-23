@@ -36,7 +36,22 @@ class CornLeafDetector(private val context: Context) {
         private const val MIN_GREEN_DOMINANCE      = 0.27f
 
         // Diseased/necrotic leaf tissue (rust, blight) — orange-brown hues
-        private const val MIN_PLANT_COMBINED_RATIO = 0.25f
+        // Lowered from 0.25 to 0.15 to accept heavily diseased leaves where
+        // NLB / gray-leaf-spot lesions cover a large fraction of the image.
+        private const val MIN_PLANT_COMBINED_RATIO = 0.15f
+
+        // ── Non-corn leaf rejection constants ──
+        // Hue concentration: if ≥88% of sampled green pixels share the same 30° hue
+        // band the image is too monochromatic to be a real corn plant photographed in
+        // natural conditions.  Studio/stock-photo non-corn leaves (banana, palm, etc.)
+        // typically score >92%; real field corn leaves score 65–82%.
+        private const val MAX_HUE_CONCENTRATION = 0.88f
+
+        // Brightness (V-channel) variance among green pixels, normalized to [0,1].
+        // A perfectly smooth stock-photo leaf has near-zero variance (~0.0005–0.001).
+        // A real field corn leaf (with veins, shadow, lighting gradients) scores
+        // roughly 0.003–0.020+.  Threshold 0.002 only rejects extreme edge cases.
+        private const val MIN_BRIGHTNESS_VARIANCE = 0.002f
     }
 
     // No model to load — always ready
@@ -119,6 +134,12 @@ class CornLeafDetector(private val context: Context) {
         val quadrantTotal = IntArray(4)
         val half = INPUT_SIZE / 2
 
+        // Hue concentration tracking: 12 bins of 30° each covering 0–360°
+        val hueBins = IntArray(12)
+        // Brightness (V-channel) statistics for variance calculation
+        var brightnessSum = 0f
+        var brightnessSqSum = 0f
+
         for (i in pixels.indices step 4) {
             val pixel = pixels[i]
             val r = (pixel shr 16) and 0xFF
@@ -130,22 +151,30 @@ class CornLeafDetector(private val context: Context) {
             totalB += b
             sampledCount++
 
-            // Determine quadrant from pixel index
-            val pixelIdx = i / 4  // actual pixel position (step 4 sampling)
-            val row = (pixelIdx / INPUT_SIZE)
-            val col = (pixelIdx % INPUT_SIZE)
+            // Determine quadrant from sampled pixel's true linear index.
+            // `i` is already an index into the 224x224 pixel buffer.
+            val row = i / INPUT_SIZE
+            val col = i % INPUT_SIZE
             val quadrant = (if (row >= half) 2 else 0) + (if (col >= half) 1 else 0)
             quadrantTotal[quadrant]++
 
             android.graphics.Color.RGBToHSV(r, g, b, hsv)
 
             val isGreen    = hsv[0] in 25f..165f && hsv[1] >= 0.20f && hsv[2] >= 0.10f
-            val isDiseased = hsv[0] in 8f..45f   && hsv[1] >= 0.25f && hsv[2] >= 0.15f
+            // Saturation threshold lowered from 0.25 to 0.15 to catch pale NLB lesions
+            // (tan/yellowish-white necrotic tissue has lower saturation than rust/orange spots).
+            val isDiseased = hsv[0] in 8f..45f   && hsv[1] >= 0.15f && hsv[2] >= 0.15f
 
             if (isGreen) {
                 greenCount++
                 greenSatSum += hsv[1]
                 quadrantPlant[quadrant]++
+                // Track hue bin (30° wide bins, indices 0–11)
+                val binIdx = (hsv[0] / 30f).toInt().coerceIn(0, 11)
+                hueBins[binIdx]++
+                // Track brightness for variance computation
+                brightnessSum += hsv[2]
+                brightnessSqSum += hsv[2] * hsv[2]
             } else if (isDiseased) {
                 diseasedCount++
                 quadrantPlant[quadrant]++
@@ -187,9 +216,40 @@ class CornLeafDetector(private val context: Context) {
             android.util.Log.d(TAG, "→ FAIL: green channel not dominant enough overall")
             return false
         }
-        if (activeQuadrants < 1) {
-            android.util.Log.d(TAG, "→ FAIL: no plant pixels found in any quadrant ($activeQuadrants/4)")
+        if (activeQuadrants < 2) {
+            android.util.Log.d(TAG, "→ FAIL: plant pixels not spread enough across image ($activeQuadrants/4 quadrants)")
             return false
+        }
+
+        // ── Hue concentration check ─────────────────────────────────────────
+        // Reject if the vast majority of green pixels share a single 30° hue band.
+        // Stock-photo non-corn leaves (banana, palm) are extremely monochromatic;
+        // real corn leaves photographed in the field show more hue spread from
+        // lighting gradients, vein shadows, and disease patches.
+        if (greenCount >= 50) {
+            val maxBinCount = hueBins.maxOrNull() ?: 0
+            val hueConcentration = maxBinCount.toFloat() / greenCount
+            android.util.Log.d(TAG, "hueConcentration=${"%.3f".format(hueConcentration)}")
+            if (hueConcentration > MAX_HUE_CONCENTRATION) {
+                android.util.Log.d(TAG, "→ FAIL: hue too concentrated " +
+                    "(${"%.3f".format(hueConcentration)} > $MAX_HUE_CONCENTRATION)")
+                return false
+            }
+        }
+
+        // ── Brightness variance check ───────────────────────────────────────
+        // Reject if green pixels are uniformly bright (very low V-channel variance).
+        // A studio/stock-photo smooth leaf has near-zero brightness variance.
+        // Real corn leaves in field conditions have measurable brightness variation.
+        if (greenCount >= 50) {
+            val mean = brightnessSum / greenCount
+            val variance = (brightnessSqSum / greenCount) - mean * mean
+            android.util.Log.d(TAG, "brightnessVariance=${"%.5f".format(variance)}")
+            if (variance < MIN_BRIGHTNESS_VARIANCE) {
+                android.util.Log.d(TAG, "→ FAIL: texture too smooth " +
+                    "(variance=${"%.5f".format(variance)} < $MIN_BRIGHTNESS_VARIANCE)")
+                return false
+            }
         }
 
         android.util.Log.d(TAG, "→ PASS: image looks plant-like")

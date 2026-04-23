@@ -6,12 +6,14 @@ package com.corneye.app.ui.screens
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.Build
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
 import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Removes the background from a corn leaf image using ML Kit Subject Segmentation.
@@ -26,6 +28,8 @@ import java.io.FileOutputStream
 object LeafBackgroundRemover {
 
     private const val TAG = "LeafBgRemover"
+    private val segmentationEnabled = AtomicBoolean(true)
+    private val emulatorSkipLogged = AtomicBoolean(false)
 
     /**
      * Pixels with foreground confidence ≥ this value are kept as-is.
@@ -42,6 +46,26 @@ object LeafBackgroundRemover {
      * original bitmap rather than crashing.
      */
     fun removeBackground(bitmap: Bitmap, bgColor: Int = Color.BLACK): Bitmap? {
+        // ML Kit subject segmentation frequently fails on emulators with
+        // MediaPipe tensor-dimension errors. Skip there to avoid noisy failures.
+        if (isLikelyEmulator()) {
+            if (emulatorSkipLogged.compareAndSet(false, true)) {
+                android.util.Log.w(TAG, "Skipping background removal on emulator due to ML Kit instability")
+            }
+            return null
+        }
+
+        // Circuit breaker: once a known segmentation backend failure happens,
+        // skip future attempts for this app process.
+        if (!segmentationEnabled.get()) {
+            return null
+        }
+
+        if (bitmap.width <= 0 || bitmap.height <= 0) {
+            android.util.Log.w(TAG, "Invalid bitmap size for segmentation: ${bitmap.width}x${bitmap.height}")
+            return null
+        }
+
         return try {
             val options = SubjectSegmenterOptions.Builder()
                 .enableForegroundConfidenceMask()
@@ -77,9 +101,34 @@ object LeafBackgroundRemover {
             android.util.Log.d(TAG, "Background removed successfully (${w}×${h})")
             output
         } catch (e: Exception) {
+            val msg = (e.message ?: "") + " " + (e.cause?.message ?: "")
+            if (msg.contains("Tensor should have 2, 3, or 4 dims", ignoreCase = true) ||
+                msg.contains("TensorsToSegmentationCalculator", ignoreCase = true) ||
+                msg.contains("Failed to run thin subject segmenter", ignoreCase = true)) {
+                segmentationEnabled.set(false)
+                android.util.Log.w(TAG, "Disabling background removal for this session after segmentation backend failure")
+            }
             android.util.Log.e(TAG, "removeBackground failed: ${e.message}", e)
             null
         }
+    }
+
+    private fun isLikelyEmulator(): Boolean {
+        val fingerprint = Build.FINGERPRINT ?: ""
+        val model = Build.MODEL ?: ""
+        val manufacturer = Build.MANUFACTURER ?: ""
+        val brand = Build.BRAND ?: ""
+        val device = Build.DEVICE ?: ""
+        val product = Build.PRODUCT ?: ""
+
+        return fingerprint.startsWith("generic") ||
+            fingerprint.contains("emulator", ignoreCase = true) ||
+            fingerprint.contains("sdk_gphone", ignoreCase = true) ||
+            model.contains("Emulator", ignoreCase = true) ||
+            model.contains("Android SDK built for", ignoreCase = true) ||
+            manufacturer.contains("Genymotion", ignoreCase = true) ||
+            (brand.startsWith("generic") && device.startsWith("generic")) ||
+            product.contains("sdk", ignoreCase = true)
     }
 
     /**

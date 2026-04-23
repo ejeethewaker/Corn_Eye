@@ -241,8 +241,6 @@ CornEye/
 | User Profile | `/user/:id` | Individual farmer detail — scans, subscription, account deactivation toggle |
 | Notifications | `/notifications` | Real-time feed of scan alerts and new-farmer notifications; detail modal with scan photo |
 | Profile | `/profile` | Admin profile view and update |
-| Documentation | `/documentation` | ML pipeline docs, disease classes, model architecture, admin features |
-| Defense Q&A | `/documentation/questions` | Q&A items across 10 categories for project defense prep |
 
 ### Running locally
 

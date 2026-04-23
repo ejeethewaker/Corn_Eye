@@ -35,7 +35,7 @@ import com.corneye.app.ui.theme.*
 
 @Composable
 fun OtpScreen(navController: NavController, email: String) {
-    val otpLength = 5
+    val otpLength = 6
     var otpValues by remember { mutableStateOf(List(otpLength) { "" }) }
     val focusRequesters = remember { List(otpLength) { FocusRequester() } }
     var isVerifying by remember { mutableStateOf(false) }

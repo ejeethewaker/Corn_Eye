@@ -27,23 +27,40 @@ import com.corneye.app.ui.theme.*
 @Composable
 fun InvalidScanScreen(navController: NavController, reason: String = "not_corn") {
     val isUnclear = reason == "unclear"
+    val isModelError = reason == "model_error"
     val iconTint = if (isUnclear) StatusWarning else StatusError
-    val title = if (isUnclear) "Unclear Result" else "Invalid Image"
-    val description = if (isUnclear)
+    val title = when {
+        isModelError -> "Scan Error"
+        isUnclear -> "Unclear Result"
+        else -> "Invalid Image"
+    }
+    val description = when {
+        isModelError -> "The scan could not be completed right now. Please try again with a clear photo."
+        isUnclear ->
         "The scan result was inconclusive. The image may show a healthy leaf, or the photo quality wasn't clear enough for a confident diagnosis."
-    else
+        else ->
         "The image you provided does not appear to be a corn leaf. Please take a clear, close-up photo of an actual corn leaf for accurate diagnosis."
-    val tips = if (isUnclear) listOf(
+    }
+    val tips = when {
+        isModelError -> listOf(
+            "Check your internet and try again",
+            "Use a clear, well-lit photo",
+            "Restart the app if this keeps happening",
+            "Try capturing the image with the in-app camera"
+        )
+        isUnclear -> listOf(
         "Make sure the leaf fills most of the frame",
         "Ensure good lighting — avoid shadows on the leaf",
         "Take a close-up of a single leaf surface",
         "If the leaf looks healthy, it likely is — try scanning again"
-    ) else listOf(
+        )
+        else -> listOf(
         "Use a clear, well-lit photo",
         "Make sure the leaf fills most of the frame",
         "Avoid blurry or dark images",
         "Scan only corn (maize) leaves"
-    )
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()

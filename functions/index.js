@@ -27,8 +27,8 @@ function generateOtp() {
 // Checks that the email belongs to an admin, generates an OTP, stores it in
 // Realtime DB under /otps/<sanitisedEmail> with a 10-minute expiry, then
 // sends it via Gmail.
-exports.sendOtp = functions.https.onCall(async (data, context) => {
-  const email = (data.email || "").trim().toLowerCase();
+exports.sendOtp = functions.https.onCall(async (request) => {
+  const email = (request.data.email || "").trim().toLowerCase();
   if (!email) {
     throw new functions.https.HttpsError("invalid-argument", "Email is required.");
   }
@@ -79,10 +79,10 @@ exports.sendOtp = functions.https.onCall(async (data, context) => {
 // ── verifyOtpAndReset ─────────────────────────────────────────────────────────
 // POST { email, otp, newPassword }
 // Validates OTP, then updates the matching admin's password in Realtime DB.
-exports.verifyOtpAndReset = functions.https.onCall(async (data, context) => {
-  const email = (data.email || "").trim().toLowerCase();
-  const otp = (data.otp || "").trim();
-  const newPassword = data.newPassword || "";
+exports.verifyOtpAndReset = functions.https.onCall(async (request) => {
+  const email = (request.data.email || "").trim().toLowerCase();
+  const otp = (request.data.otp || "").trim();
+  const newPassword = request.data.newPassword || "";
 
   if (!email || !otp || !newPassword) {
     throw new functions.https.HttpsError("invalid-argument", "email, otp, and newPassword are required.");
@@ -120,6 +120,60 @@ exports.verifyOtpAndReset = functions.https.onCall(async (data, context) => {
 
   // Clean up OTP
   await db.ref(`otps/${emailKey}`).remove();
+
+  return { success: true };
+});
+
+// ── sendFarmerOtp ─────────────────────────────────────────────────────────────
+// POST { email }
+// Checks that the email belongs to a registered farmer, generates a 6-digit OTP,
+// stores it in Realtime DB under /password_resets/<sanitisedEmail>/otp so the
+// mobile OtpScreen can read and verify it, then sends the code via Gmail.
+exports.sendFarmerOtp = functions.https.onCall(async (request) => {
+  const email = (request.data.email || "").trim().toLowerCase();
+  if (!email) {
+    throw new functions.https.HttpsError("invalid-argument", "Email is required.");
+  }
+
+  // Verify farmer exists (field is email_address in the farmers node)
+  const farmersSnap = await db.ref("farmers")
+    .orderByChild("email_address")
+    .equalTo(email)
+    .get();
+  if (!farmersSnap.exists()) {
+    throw new functions.https.HttpsError("not-found", "No account found with that email address.");
+  }
+
+  const otp = generateOtp();                           // 6-digit string
+  const expiresAt = Date.now() + 10 * 60 * 1000;      // 10-minute expiry
+
+  // Key matches FirebaseHelper.emailToKey() — dots replaced with commas
+  const emailKey = email.replace(/\./g, ",");
+
+  // Write to the path the mobile OtpScreen reads:
+  //   /password_resets/{emailKey}/otp   (String value)
+  //   /password_resets/{emailKey}/expiresAt  (timestamp, for future expiry checks)
+  await db.ref(`password_resets/${emailKey}`).set({ otp, expiresAt });
+
+  // Send email
+  const transporter = createTransporter();
+  await transporter.sendMail({
+    from: `"CornEye" <${process.env.GMAIL_USER}>`,
+    to: email,
+    subject: "CornEye — Your Password Reset OTP",
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px;border:1px solid #e0e0e0;border-radius:12px;">
+        <h2 style="color:#1b3a5c;margin-bottom:8px;">Password Reset</h2>
+        <p style="color:#555;font-size:15px;">Use the OTP below to reset your CornEye password. It expires in <strong>10 minutes</strong>.</p>
+        <div style="text-align:center;margin:32px 0;">
+          <span style="display:inline-block;letter-spacing:10px;font-size:40px;font-weight:700;color:#B76E2E;background:#fff8ee;padding:16px 32px;border-radius:10px;border:2px solid #f5b731;">
+            ${otp}
+          </span>
+        </div>
+        <p style="color:#999;font-size:13px;">If you did not request this, please ignore this email. Your password will not change.</p>
+      </div>
+    `,
+  });
 
   return { success: true };
 });
