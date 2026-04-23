@@ -301,3 +301,97 @@
     padding: 30px 20px;
   }
 }
+
+/* ── Forgot Password ── */
+.forgot-link-row {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.forgot-link {
+  background: none;
+  border: none;
+  color: #B76E2E;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.forgot-link:hover {
+  color: #e0a41e;
+}
+
+.forgot-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fp-back-btn {
+  background: none;
+  border: none;
+  color: #1b3a5c;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 24px;
+  display: inline-block;
+}
+
+.fp-back-btn:hover {
+  color: #B76E2E;
+}
+
+/* ── OTP boxes ── */
+.otp-box-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 8px 0 24px;
+}
+
+.otp-box {
+  width: 64px;
+  height: 72px;
+  font-size: 30px;
+  font-weight: 700;
+  text-align: center;
+  border: 2px solid #f5b731;
+  border-radius: 10px;
+  background-color: #f5b731;
+  color: #333;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  caret-color: transparent;
+}
+
+.otp-box:focus {
+  border-color: #B76E2E;
+  box-shadow: 0 0 0 3px rgba(183, 110, 46, 0.2);
+}
+
+.otp-resend-row {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.otp-countdown {
+  font-size: 14px;
+  color: #888;
+}
+
+@media (max-width: 480px) {
+  .otp-box {
+    width: 44px;
+    height: 54px;
+    font-size: 22px;
+  }
+
+  .otp-box-row {
+    gap: 8px;
+  }
+}
+
