@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import androidx.navigation.NavController
 import com.corneye.app.R
 import com.corneye.app.data.FirebaseHelper
@@ -213,67 +214,73 @@ fun LoginScreen(navController: NavController) {
                                     isLoading = true
                                     errorMessage = null
 
-                                    FirebaseHelper.farmersRef().orderByChild("email_address").equalTo(trimmedEmail)
-                                        .addListenerForSingleValueEvent(
-                                            object : ValueEventListener {
-                                                override fun onDataChange(snapshot: DataSnapshot) {
-                                                    if (!snapshot.exists()) {
-                                                        isLoading = false
-                                                        errorMessage = "Invalid email or password"
-                                                        return
-                                                    }
+                                    scope.launch {
+                                        try {
+                                            // Always fetch fresh from server — never use stale cache
+                                            val snapshot = FirebaseHelper.farmersRef()
+                                                .orderByChild("email_address")
+                                                .equalTo(trimmedEmail)
+                                                .get()
+                                                .await()
 
-                                                    var found = false
-                                                    var userName = "Farmer"
-                                                    var foundUserId = ""
-                                                    var accountInactive = false
-                                                    for (child in snapshot.children) {
-                                                        val userPass = child.child("password").getValue(String::class.java)
-                                                        if (userPass == password) {
-                                                            found = true
-                                                            userName = child.child("fullname").getValue(String::class.java) ?: "Farmer"
-                                                            foundUserId = child.key ?: ""
-                                                            val status = child.child("status").getValue(String::class.java) ?: "active"
-                                                            accountInactive = status != "active"
-                                                            break
-                                                        }
-                                                    }
+                                            if (!snapshot.exists()) {
+                                                isLoading = false
+                                                errorMessage = "Invalid email or password"
+                                                return@launch
+                                            }
 
-                                                    isLoading = false
-                                                    if (found && accountInactive) {
-                                                        errorMessage = "Your account has been deactivated. Please contact the administrator."
-                                                    } else if (found) {
-                                                        scope.launch {
-                                                            UserPreferences.saveUser(context, foundUserId, userName, trimmedEmail)
-                                                        }
-
-                                                        // Record login session in Firebase
-                                                        val sessionId = FirebaseHelper.loginSessionsRef().push().key ?: ""
-                                                        if (sessionId.isNotEmpty()) {
-                                                            val sessionData = mapOf(
-                                                                "login_id" to sessionId,
-                                                                "farmer_id" to foundUserId,
-                                                                "login_time" to System.currentTimeMillis(),
-                                                                "logout_time" to 0L,
-                                                                "session_status" to "active"
-                                                            )
-                                                            FirebaseHelper.loginSessionsRef().child(sessionId).setValue(sessionData)
-                                                        }
-
-                                                        navController.navigate(Screen.Home.route) {
-                                                            popUpTo(Screen.Login.route) { inclusive = true }
-                                                        }
-                                                    } else {
-                                                        errorMessage = "Invalid email or password"
-                                                    }
-                                                }
-
-                                                override fun onCancelled(error: DatabaseError) {
-                                                    isLoading = false
-                                                    errorMessage = "Connection error. Please try again."
+                                            var found = false
+                                            var userName = "Farmer"
+                                            var foundUserId = ""
+                                            var accountInactive = false
+                                            for (child in snapshot.children) {
+                                                val userPass = child.child("password").getValue(String::class.java)
+                                                if (userPass == password) {
+                                                    found = true
+                                                    userName = child.child("fullname").getValue(String::class.java) ?: "Farmer"
+                                                    foundUserId = child.key ?: ""
+                                                    // Fresh server read of status — ignores any in-memory cache
+                                                    val statusSnap = FirebaseHelper.farmersRef()
+                                                        .child(foundUserId)
+                                                        .child("status")
+                                                        .get()
+                                                        .await()
+                                                    val status = statusSnap.getValue(String::class.java) ?: "active"
+                                                    accountInactive = status != "active"
+                                                    break
                                                 }
                                             }
-                                        )
+
+                                            isLoading = false
+                                            if (found && accountInactive) {
+                                                errorMessage = "Your account has been deactivated. Please contact the administrator."
+                                            } else if (found) {
+                                                UserPreferences.saveUser(context, foundUserId, userName, trimmedEmail)
+
+                                                // Record login session in Firebase
+                                                val sessionId = FirebaseHelper.loginSessionsRef().push().key ?: ""
+                                                if (sessionId.isNotEmpty()) {
+                                                    val sessionData = mapOf(
+                                                        "login_id" to sessionId,
+                                                        "farmer_id" to foundUserId,
+                                                        "login_time" to System.currentTimeMillis(),
+                                                        "logout_time" to 0L,
+                                                        "session_status" to "active"
+                                                    )
+                                                    FirebaseHelper.loginSessionsRef().child(sessionId).setValue(sessionData)
+                                                }
+
+                                                navController.navigate(Screen.Home.route) {
+                                                    popUpTo(Screen.Login.route) { inclusive = true }
+                                                }
+                                            } else {
+                                                errorMessage = "Invalid email or password"
+                                            }
+                                        } catch (e: Exception) {
+                                            isLoading = false
+                                            errorMessage = "Connection error. Please try again."
+                                        }
+                                    }
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
