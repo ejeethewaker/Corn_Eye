@@ -258,7 +258,7 @@ function Documentation() {
               <div className="doc-step-number">1</div>
               <div className="doc-step-content">
                 <h4>Collect &amp; Label Images</h4>
-                <p>We use the PlantVillage dataset. It has thousands of leaf photos for many plants. The script picks out the <strong>4 corn folders</strong> (Common Rust, Gray Leaf Spot, Healthy, Northern Leaf Blight) and groups <strong>all the other plant photos</strong> (tomato, potato, grape, etc.) into a 5th class called "Invalid." This teaches the model to say "that's not corn" when it sees a non-corn leaf.</p>
+                <p>We use two sources of data. First, the <strong>PlantVillage dataset</strong> — a free, publicly available collection of leaf photos. The script picks out the <strong>4 corn folders</strong> (Common Rust, Gray Leaf Spot, Healthy, Northern Leaf Blight) and groups <strong>all the other plant photos</strong> (tomato, potato, grape, etc.) into a 5th class called "Invalid." Second, we collected <strong>469 real-world field photos</strong> taken with a phone camera in actual corn fields (Gray Leaf Spot, Healthy, Northern Leaf Blight). These are automatically split 80% for training and 20% for validation and merged with the PlantVillage data.</p>
               </div>
             </div>
             <div className="doc-step">
@@ -314,7 +314,7 @@ function Documentation() {
               <div className="doc-step-number">5</div>
               <div className="doc-step-content">
                 <h4>Phase 2a — Train the New Layers Only</h4>
-                <p>First, we <strong>freeze</strong> the MobileNetV2 backbone — meaning its weights stay locked and don't change. Only our newly added layers learn from the corn images. This runs for up to <strong>30 rounds (epochs)</strong>. The system automatically:</p>
+                <p>First, we <strong>freeze</strong> the MobileNetV2 backbone — meaning its weights stay locked and don't change. Only our newly added layers learn from the corn images. This runs for up to <strong>40 rounds (epochs)</strong>. The system automatically:</p>
                 <ul>
                   <li><strong>Saves the best version</strong> whenever accuracy improves</li>
                   <li><strong>Slows down learning</strong> if progress stalls for 3 rounds</li>
@@ -326,14 +326,14 @@ function Documentation() {
               <div className="doc-step-number">6</div>
               <div className="doc-step-content">
                 <h4>Phase 2b — Fine-Tune the Backbone</h4>
-                <p>Now we <strong>unlock the top 60 layers</strong> of MobileNetV2 so they can also adjust to corn-specific features (like rust textures or lesion shapes). We use a <strong>much smaller learning rate</strong> (10× lower) so we don't ruin what the model already knows. This trains for up to <strong>25 more rounds</strong>. At the end, the best model from both phases is loaded.</p>
+                <p>Now we <strong>unlock the top 100 layers</strong> of MobileNetV2 so they can also adjust to corn-specific features (like rust textures or lesion shapes). We use a <strong>much smaller learning rate</strong> (10× lower) so we don't ruin what the model already knows. This trains for up to <strong>35 more rounds</strong>. At the end, the best model from both phases is loaded.</p>
               </div>
             </div>
             <div className="doc-step">
               <div className="doc-step-number">7</div>
               <div className="doc-step-content">
                 <h4>Test the Model</h4>
-                <p>We test the model on images it has <strong>never seen during training</strong> (the validation set). The goal is <strong>above 95% accuracy</strong>. We also check:</p>
+                <p>We test the model on images it has <strong>never seen during training</strong> (the validation set). The goal is <strong>above 95% accuracy</strong> — the current model achieved <strong>99.43%</strong>. We also check:</p>
                 <ul>
                   <li>A <strong>confusion matrix</strong> — a table that shows which diseases get mixed up with each other</li>
                   <li><strong>Precision, recall, and F1 score</strong> — these tell us how well the model performs on each individual class, not just overall</li>
@@ -344,12 +344,12 @@ function Documentation() {
               <div className="doc-step-number">8</div>
               <div className="doc-step-content">
                 <h4>Shrink the Model (INT8 Quantization)</h4>
-                <p>The trained model is too large for a phone (~14 MB). We convert it to <strong>TFLite format</strong> and apply <strong>INT8 quantization</strong>, which means:</p>
+                <p>The trained model is converted to <strong>TFLite format</strong> and <strong>INT8 quantization</strong> is applied, which means:</p>
                 <ul>
                   <li>We feed 500 sample images through the model to measure value ranges at each layer</li>
                   <li>We convert the model's numbers from 32-bit (detailed) to 8-bit (compact) using those ranges</li>
-                  <li>This shrinks the file <strong>~4× smaller</strong> (down to ~3.5 MB)</li>
-                  <li>We verify the smaller model still has <strong>above 94% accuracy</strong> — if not, we keep the bigger version</li>
+                  <li>This shrinks the file to <strong>~3.0 MB</strong></li>
+                  <li>We verify the smaller model still has <strong>above 94% accuracy</strong> (current: <strong>99.40%</strong>) — if not, we keep the bigger version</li>
                 </ul>
               </div>
             </div>
@@ -406,7 +406,7 @@ function Documentation() {
                   <path d="M2 12l10 5 10-5"/>
                 </svg>
               </div>
-              <span>Train Head (30 ep)</span>
+              <span>Train Head (40 ep)</span>
             </div>
             <span className="doc-pipeline-arrow">&rarr;</span>
             <div className="doc-pipeline-item">
@@ -416,7 +416,7 @@ function Documentation() {
                   <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
                 </svg>
               </div>
-              <span>Fine-Tune (25 ep)</span>
+              <span>Fine-Tune (35 ep)</span>
             </div>
             <span className="doc-pipeline-arrow">&rarr;</span>
             <div className="doc-pipeline-item">

@@ -38,7 +38,7 @@ const QA_SECTIONS = [
     items: [
       {
         q: 'Where did the dataset come from?',
-        a: 'We used the PlantVillage dataset, which is a free, publicly available collection of over 50,000 leaf photos covering 38 different crop diseases. We took the 4 corn folders for our disease classes, and used all the other plant folders (tomato, potato, grape, etc.) as the Invalid class.',
+        a: 'We used two sources. First, the PlantVillage dataset — a free, publicly available collection of over 50,000 leaf photos covering 38 different crop diseases. We took the 4 corn folders for our disease classes, and used all the other plant folders (tomato, potato, grape, etc.) as the Invalid class. Second, we collected 469 real-world field photos taken with a phone camera in actual corn fields in the Philippines — Gray Leaf Spot (204 photos), Healthy (65 photos), and Northern Leaf Blight (200 photos). These real-world photos are split 80% for training and 20% for validation.',
       },
       {
         q: 'How many images are in the training set?',
@@ -50,7 +50,7 @@ const QA_SECTIONS = [
       },
       {
         q: 'What data augmentation did you apply and why?',
-        a: 'During training, we randomly flip, rotate, crop, change brightness, and add noise to images. This is done because the PlantVillage photos are very clean and consistent, but real photos from a farmer\'s phone will be taken outdoors in different lighting and angles. Augmentation makes the model more flexible and accurate on real-world photos.',
+        a: 'During training, we randomly flip, rotate, crop, change brightness, and add noise to images. We also randomly add JPEG compression artifacts and simulate zoom-out shots (leaf small in the frame). This is important because the PlantVillage photos are very clean studio shots, but real photos from a farmer\'s phone are taken outdoors with different lighting, angles, and distances. We also added 469 real-world field photos to the training data to further close this gap.',
       },
       {
         q: 'Did you split the data into train/validation/test?',
@@ -71,7 +71,7 @@ const QA_SECTIONS = [
       },
       {
         q: 'Explain the two-phase training strategy.',
-        a: 'Phase 1 (Head Only): We lock the pre-trained part of the model and only train our new output layers for up to 30 rounds. This teaches the new layers how to use the existing features for our 5 corn classes. Phase 2 (Fine-Tuning): We unlock the top 60 layers of the model and train everything together for 25 more rounds at a much slower learning rate. This lets the model fine-tune its understanding to focus on corn-specific details like rust spots or lesion shapes.',
+        a: 'Phase 1 (Head Only): We lock the pre-trained part of the model and only train our new output layers for up to 40 rounds. This teaches the new layers how to use the existing features for our 5 corn classes. Phase 2 (Fine-Tuning): We unlock the top 100 layers of the model and train everything together for 35 more rounds at a much slower learning rate. This lets the model fine-tune its understanding to focus on corn-specific details like rust spots or lesion shapes.',
       },
       {
         q: 'Why freeze the backbone first?',
@@ -95,7 +95,7 @@ const QA_SECTIONS = [
       },
       {
         q: 'What accuracy did the model achieve?',
-        a: 'The goal is above 95% accuracy on the validation set for the full model, and above 94% for the smaller quantized version. If the quantized model drops below 94%, the system automatically keeps the larger (more accurate) version instead.',
+        a: 'The model achieved 99.43% accuracy on the validation set, and the INT8 quantized version achieved 99.40% — both well above the targets of >95% and >94% respectively. The model size is ~3.0 MB.',
       },
     ],
   },
@@ -191,7 +191,7 @@ const QA_SECTIONS = [
       },
       {
         q: 'Did you do any real-world field testing?',
-        a: 'Yes, in two ways: (1) we uploaded photos of corn leaves found online through the app to check if it classifies correctly, and (2) we went to actual corn fields and took photos of real leaves with a phone camera. The augmentation we used during training (changing brightness, cropping, adding noise) was designed to prepare the model for these real-world conditions.',
+        a: 'Yes, extensively. We collected 469 real-world photos taken with a phone camera in actual corn fields in the Philippines — 204 Gray Leaf Spot, 200 Northern Leaf Blight, and 65 Healthy leaf photos. These were added directly to the training and validation sets (80/20 split), so the model was trained and validated on actual field conditions, not just PlantVillage studio shots. The heavy augmentation (changing brightness, cropping, adding JPEG noise) further bridges the gap between clean training images and real camera photos.',
       },
     ],
   },
@@ -262,11 +262,11 @@ const QA_SECTIONS = [
     items: [
       {
         q: 'What challenges did you face during development?',
-        a: 'Four main challenges: (1) The PlantVillage training photos look very different from real phone camera photos taken outside — we solved this with heavy augmentation. (2) The Invalid class had way more images than the corn classes — we fixed it with balancing. (3) The model was too big for budget phones — we used INT8 quantization to shrink it 4×. (4) Making sure the model actually learned patterns instead of just memorizing specific photos.',
+        a: 'Four main challenges: (1) The PlantVillage training photos look very different from real phone camera photos taken outside — we solved this with heavy augmentation and by collecting 469 real-world field photos. (2) The Invalid class had way more images than the corn classes — we fixed it with balancing. (3) The model was too big for budget phones — we used INT8 quantization to shrink it to ~3.0 MB. (4) Making sure the model actually learned patterns instead of just memorizing specific photos.',
       },
       {
         q: 'What would you improve if you had more time?',
-        a: 'We would add more corn diseases and other crops, collect real field photos to improve training, add severity grading (mild/moderate/severe), explore ways to update the model on-device without redownloading it, and build a treatment recommendation feature that suggests what to do after a diagnosis.',
+        a: 'We would add more corn diseases and other crops, collect more real field photos to cover Common Rust in the wild (currently only PlantVillage data), add severity grading (mild/moderate/severe), explore ways to update the model on-device without redownloading it, and build a treatment recommendation feature that suggests what to do after a diagnosis.',
       },
       {
         q: 'Could this work for other crops?',

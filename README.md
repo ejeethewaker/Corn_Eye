@@ -278,8 +278,8 @@ The model is trained via `scripts/train_model.py` which runs a 5-phase pipeline:
 
 | Phase | Description |
 |---|---|
-| **Phase 1** — Data Collection | PlantVillage corn subset + non-corn folders as "Invalid" class; heavy augmentation (flip, rotate, crop, HSV jitter, Gaussian noise); oversampling for class balance |
-| **Phase 2** — Training | MobileNetV2 (ImageNet pretrained); two-stage: frozen head (30 epochs) → fine-tune top 60 layers (25 epochs, LR 1e-4) |
+| **Phase 1** — Data Collection | PlantVillage corn subset + **469 real-world field photos** (Gray Leaf Spot, Healthy, Northern Leaf Blight) + non-corn folders as "Invalid" class; heavy augmentation (flip, rotate, crop, HSV jitter, Gaussian noise); oversampling for class balance |
+| **Phase 2** — Training | MobileNetV2 (ImageNet pretrained); two-stage: frozen head (40 epochs) → fine-tune top 100 layers (35 epochs, LR 1e-4) |
 | **Phase 3** — Evaluation | Confusion matrix, per-class precision/recall/F1; target >95% validation accuracy |
 | **Phase 4** — TFLite Conversion | INT8 quantization with 500-image stratified representative dataset; validates quantized accuracy >94%; fallback to float32 if needed |
 | **Phase 5** — Mobile UX | Handled by Android app: green pixel check → TFLite inference → reject if Invalid / low confidence / high entropy |
@@ -290,6 +290,15 @@ The model is trained via `scripts/train_model.py` which runs a 5-phase pipeline:
 pip install tensorflow
 python scripts/train_model.py
 ```
+
+Real-world field photos must be placed in the following structure before training:
+```
+public/
+  Gray Leaf Spot/Gray leaf spot/      ← 204 JPG photos
+  Healthy Leaf/healthy leaf/           ← 65 JPG photos
+  Northern Leaf Blight/Northern Blight/ ← 200 JPG photos
+```
+The script automatically merges them with the PlantVillage data (80% train / 20% val split).
 
 Output: `models/corn_disease_model.tflite` and `models/labels.txt` — auto-copied to `mobile/app/src/main/assets/`.
 
@@ -310,12 +319,13 @@ Training logs are saved to `models/training_phase2a_log.csv` and `models/trainin
 | Property | Value |
 |---|---|
 | Architecture | MobileNetV2 (ImageNet pretrained) |
-| Input | 224 × 224 RGB, normalized [0,1] |
+| Input | 224 × 224 RGB, center-square-crop, normalized [0,1] |
 | Output | 5-class softmax |
 | Quantization | INT8 (float32 input/output for Android compatibility) |
-| Format | TFLite (~3.5 MB) |
+| Format | TFLite (~3.0 MB) |
+| Validation accuracy | **99.43%** (full model) · **99.40%** (INT8 quantized) |
 | Classes | Common Rust, Gray Leaf Spot, Healthy, Northern Leaf Blight, Invalid |
-| Training data | PlantVillage dataset (corn classes + non-corn as Invalid) |
+| Training data | PlantVillage dataset + 469 real-world field photos (80/20 train/val split) |
 
 ---
 
