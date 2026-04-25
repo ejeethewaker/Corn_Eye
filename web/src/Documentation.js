@@ -473,8 +473,9 @@ function Documentation() {
                 <tr><td className="doc-table-label">Input Size</td><td>224 × 224 pixels, 3 color channels (RGB)</td></tr>
                 <tr><td className="doc-table-label">Output</td><td>5 scores (one per class) that add up to 100%</td></tr>
                 <tr><td className="doc-table-label">Quantization</td><td>INT8 — model numbers compressed from 32-bit to 8-bit for smaller size</td></tr>
-                <tr><td className="doc-table-label">Validation Accuracy</td><td>Above 95%</td></tr>
-                <tr><td className="doc-table-label">Quantized Accuracy</td><td>Above 94% (must stay close to original)</td></tr>
+                <tr><td className="doc-table-label">Training Data</td><td>PlantVillage dataset + 469 real-world field photos (Gray Leaf Spot, Healthy, Northern Leaf Blight)</td></tr>
+                <tr><td className="doc-table-label">Validation Accuracy</td><td>99.43%</td></tr>
+                <tr><td className="doc-table-label">Quantized Accuracy</td><td>99.40% (INT8)</td></tr>
                 <tr><td className="doc-table-label">File Format</td><td>TensorFlow Lite (.tflite) — made for mobile devices</td></tr>
               </tbody>
             </table>

@@ -445,7 +445,7 @@ Training logs are saved to `models/training_phase2a_log.csv` and `models/trainin
 |---|---|
 | Mobile | Kotlin 1.9.24 · Jetpack Compose (BOM 2024.12.01) · CameraX 1.4.1 · TensorFlow Lite 2.17.0 · ML Kit Subject Segmentation · Coil 2.7 · DataStore · Firebase |
 | Web Admin | React 19 · React Router 7 · Firebase JS SDK 12 |
-| ML Model | MobileNetV2 · TFLite INT8 quantized · PlantVillage dataset |
+| ML Model | MobileNetV2 · TFLite INT8 quantized · PlantVillage dataset + 469 real-world field photos |
 | Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage · Firebase Functions v6 (Node.js 20) · Nodemailer 6.9 (Gmail SMTP) (BOM 33.7.0) |
 | Build | Gradle 8 (KTS) · AGP 8.7.3 · Android SDK 35 |
 | Deployment | Vercel (web dashboard) · Firebase Functions (us-central1) |

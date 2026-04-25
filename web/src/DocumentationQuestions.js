@@ -42,7 +42,7 @@ const QA_SECTIONS = [
       },
       {
         q: 'How many images are in the training set?',
-        a: 'After balancing, each of the 5 classes has roughly the same number of images — around 2,000+ per corn class. The Invalid class is limited to 2× the biggest corn class so it doesn\'t overpower the others.',
+        a: 'After balancing, each of the 5 classes has roughly the same number of images — around 2,000+ per corn class. The Invalid class is limited to 2× the biggest corn class so it doesn\'t overpower the others. On top of that, 469 real-world field photos (split 80/20 train/val) are merged in before balancing to give the model exposure to actual field conditions.',
       },
       {
         q: 'Why did you need class balancing?',
