@@ -33,6 +33,7 @@ import com.corneye.app.data.UserPreferences
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
 import android.util.Base64
+import kotlinx.coroutines.launch
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.ValueEventListener
@@ -51,6 +52,7 @@ data class RecentScan(
 @Composable
 fun HomeScreen(navController: NavController) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val fullname by UserPreferences.getFullname(context).collectAsState(initial = "Farmer")
     val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
     val firstName = fullname.split(" ").firstOrNull() ?: "Farmer"
@@ -62,6 +64,26 @@ fun HomeScreen(navController: NavController) {
     var recentScans by remember { mutableStateOf<List<RecentScan>>(emptyList()) }
     var photoUrl by remember { mutableStateOf("") }
     var selectedHistoryFilter by remember { mutableIntStateOf(0) }
+
+    // Real-time account status check — kick out if admin deactivates the account
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val statusListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val status = snapshot.getValue(String::class.java) ?: "active"
+                if (status != "active") {
+                    scope.launch { UserPreferences.clear(context) }
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        val statusRef = FirebaseHelper.farmersRef().child(userId).child("status")
+        statusRef.addValueEventListener(statusListener)
+        onDispose { statusRef.removeEventListener(statusListener) }
+    }
 
     // Real-time listener so photo updates immediately after upload
     DisposableEffect(userId) {

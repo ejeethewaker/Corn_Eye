@@ -88,6 +88,12 @@ The model classifies corn leaf images into 5 categories (4 corn + 1 rejection cl
 CornEye/
 ├── README.md                       ← This file
 ├── vercel.json                     ← Web dashboard deployment config
+├── firebase.json                   ← Firebase project config (Functions + Hosting)
+│
+├── functions/                      ← Firebase Cloud Functions (Node.js 20)
+│   ├── index.js                    ← sendOtp + verifyOtpAndReset callable functions
+│   ├── package.json
+│   └── .env                        ← Gmail SMTP credentials (gitignored)
 │
 ├── scripts/                        ← ML training & utility scripts
 │   ├── train_model.py              ← 5-phase training pipeline (MobileNetV2, INT8)
@@ -229,14 +235,12 @@ CornEye/
 
 | Page | Route | Description |
 |---|---|---|
-| Login | `/` | Admin email/password login (stored in localStorage) |
+| Login | `/` | Admin email/password login with **Forgot Password** OTP flow (Firebase Functions + Gmail) |
 | Dashboard | `/dashboard` | Total users, total scans, diseases detected, healthy scans; date filter for trends |
 | Users | `/users` | All registered farmers, status badges, profile photos (real-time) |
-| User Profile | `/user/:id` | Individual farmer detail — scans, subscription, contact |
+| User Profile | `/user/:id` | Individual farmer detail — scans, subscription, account deactivation toggle |
 | Notifications | `/notifications` | Real-time feed of scan alerts and new-farmer notifications; detail modal with scan photo |
 | Profile | `/profile` | Admin profile view and update |
-| Documentation | `/documentation` | ML pipeline docs, disease classes, model architecture summary |
-| Defense Q&A | `/documentation/questions` | 43 Q&A items across 9 categories for project defense prep |
 
 ### Running locally
 
@@ -321,11 +325,16 @@ Training logs are saved to `models/training_phase2a_log.csv` and `models/trainin
 /admins/{adminId}/
     fullName              String
     email                 String
+    password              String
+
+/otps/{emailKey}/
+    otp                   String       6-digit OTP code
+    expiresAt             Long         epoch ms (10-minute expiry)
 
 /farmers/{userId}/
     fullname              String
     email_address         String
-    status                String       "active" | "inactive"
+    status                String       "active" | "inactive"  ← toggled by admin; enforced at login & in-app
     profile_photo_url     String       raw Base64
     farm_location         String
     farm_area             String
@@ -397,7 +406,21 @@ Training logs are saved to `models/training_phase2a_log.csv` and `models/trainin
    npm start
    ```
 
-5. **ML model** (optional — pre-built `.tflite` is already in assets)
+5. **Firebase Functions** (required for Forgot Password OTP emails)
+   - Upgrade Firebase project to **Blaze plan** (pay-as-you-go) — required for outbound network calls
+   - Create `functions/.env` with your Gmail App Password:
+     ```
+     GMAIL_USER=your@gmail.com
+     GMAIL_PASS=your-app-password
+     ```
+   - Deploy:
+     ```bash
+     cd functions
+     npm install
+     npx firebase-tools deploy --only functions --project <your-project-id>
+     ```
+
+6. **ML model** (optional — pre-built `.tflite` is already in assets)
    ```bash
    pip install tensorflow
    python scripts/train_model.py
@@ -413,6 +436,6 @@ Training logs are saved to `models/training_phase2a_log.csv` and `models/trainin
 | Mobile | Kotlin 1.9.24 · Jetpack Compose (BOM 2024.12.01) · CameraX 1.4.1 · TensorFlow Lite 2.17.0 · ML Kit Subject Segmentation · Coil 2.7 · DataStore · Firebase |
 | Web Admin | React 19 · React Router 7 · Firebase JS SDK 12 |
 | ML Model | MobileNetV2 · TFLite INT8 quantized · PlantVillage dataset |
-| Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage (BOM 33.7.0) |
+| Backend | Firebase Realtime Database · Firebase Auth · Firebase Storage · Firebase Functions v6 (Node.js 20) · Nodemailer 6.9 (Gmail SMTP) (BOM 33.7.0) |
 | Build | Gradle 8 (KTS) · AGP 8.7.3 · Android SDK 35 |
-| Deployment | Vercel (web dashboard) |
+| Deployment | Vercel (web dashboard) · Firebase Functions (us-central1) |

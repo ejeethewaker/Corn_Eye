@@ -17,15 +17,24 @@ function Dashboard() {
   const [customTo, setCustomTo] = useState('');
 
   useEffect(() => {
-    // One-time admin profile load
+    // One-time admin profile load — show cached value instantly, refresh in background
     const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+    const cachedName = localStorage.getItem('adminCachedName');
+    const cachedInitials = localStorage.getItem('adminCachedInitials');
+    if (cachedName) {
+      setAdminName(cachedName);
+      setAdminInitials(cachedInitials || 'A');
+    }
     get(ref(database, 'admins')).then((snap) => {
       if (snap.exists()) {
         const matched = Object.values(snap.val()).find((a) => a.email === storedEmail);
         if (matched) {
           const name = matched.fullName || 'Admin';
+          const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
           setAdminName(name);
-          setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
+          setAdminInitials(initials);
+          localStorage.setItem('adminCachedName', name);
+          localStorage.setItem('adminCachedInitials', initials);
         }
       }
     }).catch((err) => console.error('Failed to load admin:', err));
@@ -157,6 +166,8 @@ function Dashboard() {
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
     localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminCachedName');
+    localStorage.removeItem('adminCachedInitials');
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');
@@ -164,7 +175,7 @@ function Dashboard() {
 
   return (
     <div className="dashboard-container">
-      {/* Sidebar */}
+      {/* Sidebar */}}
       <aside className="dashboard-sidebar">
         <div className="sidebar-top">
           <div className="sidebar-brand">

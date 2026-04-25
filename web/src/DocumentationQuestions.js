@@ -168,6 +168,10 @@ const QA_SECTIONS = [
         q: 'How is authentication handled?',
         a: 'Admins log in with their email and password, which is checked against the "admins" list in Firebase. If "Remember Me" is checked, the login is saved permanently. Otherwise, it only lasts for that browser session. Every page checks if the user is logged in — if not, they\'re redirected to the login page.',
       },
+      {
+        q: 'How can an admin reset their password?',
+        a: 'There is a Forgot Password link on the login page. Clicking it starts a 4-step OTP flow: enter email → receive a 6-digit code by email (sent by a Firebase Cloud Function) → enter the code within 10 minutes → set a new password. The code is validated server-side and deleted after a successful reset.',
+      },
     ],
   },
   {
@@ -220,6 +224,39 @@ const QA_SECTIONS = [
       },
     ],
   },
+    {
+    title: 'Admin Dashboard & Security',
+    items: [
+      {
+        q: 'How does the admin forgot password flow work?',
+        a: 'When an admin clicks "Forgot Password?", they enter their registered email. The app calls a Firebase Cloud Function (sendOtp) that checks if the email exists in the /admins node, generates a 6-digit OTP, stores it in /otps/<emailKey> with a 10-minute expiry, and sends it via Gmail SMTP using Nodemailer. The admin enters the code in a 6-box input on screen, then sets a new password which is verified and updated by a second Firebase Function (verifyOtpAndReset).',
+      },
+      {
+        q: 'Why use Firebase Functions for sending the OTP email instead of doing it from the browser?',
+        a: 'If we sent the email from the browser (e.g. using EmailJS), the Gmail credentials (username and App Password) would be visible to anyone who opens DevTools. Firebase Functions run server-side, so the credentials are stored in a .env file on the server and are never exposed to the client.',
+      },
+      {
+        q: 'Where is the OTP stored and for how long?',
+        a: 'The OTP is stored in the Firebase Realtime Database under /otps/<emailKey> along with an expiresAt timestamp set to 10 minutes from when it was generated. The verifyOtpAndReset function rejects any OTP where the current time is past expiresAt, preventing expired codes from being used.',
+      },
+      {
+        q: 'How does account deactivation work from the admin side?',
+        a: 'On the User Profile page, the admin flips a toggle next to "Account Status." This immediately writes status: "inactive" (or "active") to /farmers/<userId>/status in Firebase Realtime Database via an update() call. The change takes effect instantly — no server restart or delay.',
+      },
+      {
+        q: 'How does the mobile app enforce account deactivation at login?',
+        a: 'Instead of using addListenerForSingleValueEvent (which can return stale cached data), the login screen uses get().await() — a Kotlin coroutine-based call that always fetches fresh data from the Firebase server. After credentials match, a second get().await() call reads only the status field. If status is not "active", login is blocked and the user sees a message to contact the administrator.',
+      },
+      {
+        q: 'What happens if a farmer is already inside the app when their account is deactivated?',
+        a: 'The HomeScreen registers a real-time Firebase listener (addValueEventListener) on the farmer\'s status field when the screen opens. The moment an admin changes the status to "inactive", Firebase pushes that update to all connected clients. The listener fires, clears the local session (DataStore), and navigates the user back to the login screen — effectively kicking them out in real time.',
+      },
+      {
+        q: 'Why did switching back to "active" still show an error before the fix?',
+        a: 'The original login used addListenerForSingleValueEvent, which first checks Firebase\'s in-memory cache. After a deactivation event, the cache held "inactive". Even after the admin toggled it back to "active" in the database, the login read the stale cached value and still blocked the user. Switching to get().await() fixed this because it always goes directly to the server and ignores the cache.',
+      },
+    ],
+  },
   {
     title: 'Challenges & Future Work',
     items: [
@@ -253,6 +290,13 @@ function DocumentationQuestions() {
     const loadAdmin = async () => {
       try {
         const storedEmail = localStorage.getItem('adminEmail') || sessionStorage.getItem('adminEmail') || '';
+        // Show cached name instantly
+        const cachedName = localStorage.getItem('adminCachedName');
+        const cachedInitials = localStorage.getItem('adminCachedInitials');
+        if (cachedName) {
+          setAdminName(cachedName);
+          setAdminInitials(cachedInitials || 'A');
+        }
         const adminsRef = ref(database, 'admins');
         const adminsSnap = await get(adminsRef);
         if (adminsSnap.exists()) {
@@ -260,8 +304,11 @@ function DocumentationQuestions() {
           const matched = Object.values(admins).find((a) => a.email === storedEmail);
           if (matched) {
             const name = matched.fullName || 'Admin';
+            const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
             setAdminName(name);
-            setAdminInitials(name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2));
+            setAdminInitials(initials);
+            localStorage.setItem('adminCachedName', name);
+            localStorage.setItem('adminCachedInitials', initials);
           }
         }
       } catch (err) {
@@ -274,6 +321,8 @@ function DocumentationQuestions() {
   const handleLogout = () => {
     localStorage.removeItem('adminLoggedIn');
     localStorage.removeItem('adminEmail');
+    localStorage.removeItem('adminCachedName');
+    localStorage.removeItem('adminCachedInitials');
     sessionStorage.removeItem('adminLoggedIn');
     sessionStorage.removeItem('adminEmail');
     navigate('/');

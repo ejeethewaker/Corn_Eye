@@ -8,7 +8,9 @@ import com.google.firebase.storage.ktx.storage
 
 object FirebaseHelper {
     val database: FirebaseDatabase by lazy {
-        Firebase.database("https://corneye-ec181-default-rtdb.asia-southeast1.firebasedatabase.app")
+        Firebase.database("https://corneye-ec181-default-rtdb.asia-southeast1.firebasedatabase.app").also {
+            it.setPersistenceEnabled(true)
+        }
     }
 
     val storage by lazy { Firebase.storage }

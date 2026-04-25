@@ -1,9 +1,9 @@
 // Firebase Config
-// Initializes the Firebase app and exports the Realtime Database instance.
+// Initializes the Firebase app and exports the Realtime Database and Functions instances.
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
+import { getFunctions } from 'firebase/functions';
 
-// TODO: Replace with your Firebase project configuration
 const firebaseConfig = {
   apiKey: 'AIzaSyB7ylHAJgvdvnjwyvkzPsLH9gyPnGIGn20',
   authDomain: 'corneye-ec181.firebaseapp.com',
@@ -16,6 +16,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
+const functions = getFunctions(app, 'us-central1');
 
-export { database };
+export { database, functions };
 export default app;

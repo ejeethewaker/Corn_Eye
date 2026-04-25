@@ -746,6 +746,7 @@ private fun performAnalysis(
         // the isolated leaf (black background), like a lab photo.
         // Classification in Stage 2 still uses the ORIGINAL file/URI —
         // the model was trained without background removal.
+        var segmentedFile: java.io.File? = null
         val displayUriString: String = try {
             val rawBitmap: Bitmap? = when {
                 imageFile != null -> android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath)
@@ -759,6 +760,7 @@ private fun performAnalysis(
                     context, segmented,
                     "corn_seg_${System.currentTimeMillis()}.jpg"
                 )
+                segmentedFile = segFile
                 android.net.Uri.fromFile(segFile).toString()
             } else {
                 android.util.Log.w("ScanScreen", "BG removal failed — using original image")
@@ -775,19 +777,52 @@ private fun performAnalysis(
         val classifier = CornDiseaseClassifier(context)
         val modelLoaded = classifier.initialize()
 
-        val tfliteResult: CornDiseaseClassifier.Result? = when {
+        var tfliteResult: CornDiseaseClassifier.Result? = when {
             !modelLoaded      -> null
             imageFile != null -> classifier.classifyFromFile(imageFile)
             imageUri  != null -> classifier.classifyFromUri(imageUri)
             else              -> null
         }
+
+        // Retry once on segmented image when initial prediction is rejected.
+        // This can recover cases where background clutter biases the model to Invalid.
+        if (tfliteResult != null && !tfliteResult.isValid && segmentedFile != null) {
+            val segmentedResult = classifier.classifyFromFile(segmentedFile!!)
+            if (segmentedResult != null) {
+                android.util.Log.d(
+                    "ScanScreen",
+                    "Retry(segmented): ${segmentedResult.label}, conf=${segmentedResult.confidence}, entropy=${segmentedResult.entropy}, isValid=${segmentedResult.isValid}"
+                )
+                if (segmentedResult.isValid) {
+                    tfliteResult = segmentedResult
+                }
+            }
+        }
+
+        // Force-corn fallback: if the normal classifier still rejects (likely domain shift —
+        // model was trained on PlantVillage lab photos and real-world field images look
+        // very different), re-classify while ignoring the Invalid class entirely.
+        // The color pre-filter already confirmed this image has corn-like colors.
+        if (tfliteResult != null && !tfliteResult.isValid) {
+            val forcedResult: CornDiseaseClassifier.Result? = when {
+                imageFile != null -> classifier.classifyForceCornFromFile(imageFile)
+                imageUri  != null -> classifier.classifyForceCornFromUri(imageUri)
+                else              -> null
+            }
+            if (forcedResult != null && forcedResult.isValid) {
+                android.util.Log.d("ScanScreen",
+                    "ForceCorn fallback accepted: ${forcedResult.label} @ ${forcedResult.confidence}")
+                tfliteResult = forcedResult
+            }
+        }
+
         classifier.close()
 
         // Check OOD gates
         if (tfliteResult == null || !tfliteResult.isValid) {
             val reason = when {
                 tfliteResult == null -> "model_error"
-                else -> "ood_rejected"
+                else -> "not_corn"
             }
             android.util.Log.d("ScanScreen", "OOD gate: REJECTED (${tfliteResult?.label}, " +
                 "conf=${tfliteResult?.confidence}, entropy=${tfliteResult?.entropy}) → InvalidScan")

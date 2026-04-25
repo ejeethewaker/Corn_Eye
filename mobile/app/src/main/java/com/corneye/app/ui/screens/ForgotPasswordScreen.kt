@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,15 +17,20 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.corneye.app.data.FirebaseHelper
 import com.corneye.app.navigation.Screen
 import com.corneye.app.ui.theme.*
+import com.google.firebase.functions.FirebaseFunctionsException
+import com.google.firebase.functions.ktx.functions
+import com.google.firebase.ktx.Firebase
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,6 +38,7 @@ fun ForgotPasswordScreen(navController: NavController) {
     var email by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
 
     Box(
         modifier = Modifier
@@ -115,12 +122,23 @@ fun ForgotPasswordScreen(navController: NavController) {
 
                     TextField(
                         value = email,
-                        onValueChange = { email = it; errorMessage = null },
+                        onValueChange = { newValue ->
+                            email = newValue
+                            errorMessage = null
+                        },
                         placeholder = { Text("Enter your email address", color = TextHint) },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { /* triggers recompose so autofill state syncs */ },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { focusManager.clearFocus() }
+                        ),
                         colors = TextFieldDefaults.colors(
                             unfocusedContainerColor = White,
                             focusedContainerColor = White,
@@ -153,38 +171,24 @@ fun ForgotPasswordScreen(navController: NavController) {
                             }
                             isLoading = true
                             val trimmedEmail = email.trim()
-                            // Check if email exists in Firebase
-                            FirebaseHelper.farmersRef()
-                                .orderByChild("email_address")
-                                .equalTo(trimmedEmail)
-                                .get()
-                                .addOnSuccessListener { snapshot ->
-                                    if (!snapshot.exists()) {
-                                        isLoading = false
-                                        errorMessage = "No account found with this email address"
-                                    } else {
-                                        // Generate 6-digit OTP and store in Firebase
-                                        val otp = (100000..999999).random().toString()
-                                        val safeKey = FirebaseHelper.emailToKey(trimmedEmail)
-                                        FirebaseHelper.passwordResetsRef()
-                                            .child(safeKey)
-                                            .child("otp")
-                                            .setValue(otp)
-                                            .addOnSuccessListener {
-                                                isLoading = false
-                                                navController.navigate(
-                                                    Screen.Otp.createRoute(trimmedEmail)
-                                                )
-                                            }
-                                            .addOnFailureListener {
-                                                isLoading = false
-                                                errorMessage = "Failed to send OTP. Please try again."
-                                            }
-                                    }
-                                }
-                                .addOnFailureListener {
+                            // Call the Firebase Cloud Function which generates the OTP,
+                            // stores it in /password_resets/{key}, and emails it to the user.
+                            Firebase.functions
+                                .getHttpsCallable("sendFarmerOtp")
+                                .call(hashMapOf("email" to trimmedEmail))
+                                .addOnSuccessListener {
                                     isLoading = false
-                                    errorMessage = "Connection error. Please try again."
+                                    navController.navigate(Screen.Otp.createRoute(trimmedEmail))
+                                }
+                                .addOnFailureListener { e ->
+                                    isLoading = false
+                                    errorMessage = when {
+                                        e is FirebaseFunctionsException && e.code == FirebaseFunctionsException.Code.NOT_FOUND ->
+                                            "No account found with this email address"
+                                        e is FirebaseFunctionsException ->
+                                            e.message ?: "Failed to send OTP. Please try again."
+                                        else -> "Connection error. Please try again."
+                                    }
                                 }
                         },
                         enabled = !isLoading,

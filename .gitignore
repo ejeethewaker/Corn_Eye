@@ -13,6 +13,11 @@ mobile/app/google-services.json
 web/node_modules/
 web/build/
 
+# Firebase Functions
+functions/node_modules/
+functions/.env
+functions/.env.*
+
 # IDE
 .idea/
 *.iml
