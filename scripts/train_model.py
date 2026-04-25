@@ -95,6 +95,15 @@ CORN_FOLDER_MAP = {
     "Corn_(maize)___Northern_Leaf_Blight"                : "Northern Leaf Blight",
 }
 
+# ── Real-world phone photos (supplement PlantVillage with field images) ────────
+REAL_WORLD_DIR = r"C:\Users\camsy\OneDrive\Desktop\Corn_Eye\public"
+REAL_WORLD_FOLDER_MAP = {
+    os.path.join("Gray Leaf Spot",      "Gray leaf spot") : "Gray Leaf Spot",
+    os.path.join("Healthy Leaf",        "healthy leaf")   : "Healthy",
+    os.path.join("Northern Leaf Blight","Northern Blight"): "Northern Leaf Blight",
+}
+REAL_WORLD_VAL_SPLIT = 0.20   # 20% of real-world images reserved for validation
+
 # 5 classes: 4 corn diseases + Invalid (all non-corn plant folders)
 CLASSES     = sorted(CORN_FOLDER_MAP.values()) + ["Invalid"]
 NUM_CLASSES = len(CLASSES)   # 5
@@ -137,6 +146,36 @@ def collect_paths(split_dir):
             invalid_paths.extend((p, INVALID_IDX) for p in images)
     return corn_paths, invalid_paths
 
+def collect_realworld_paths():
+    """Collect real-world phone photos and split 80/20 into train/val.
+
+    Folder structure under REAL_WORLD_DIR:
+        Gray Leaf Spot/Gray leaf spot/       → Gray Leaf Spot class
+        Healthy Leaf/healthy leaf/           → Healthy class
+        Northern Leaf Blight/Northern Blight/→ Northern Leaf Blight class
+    """
+    train_paths, val_paths = [], []
+    rng = random.Random(SEED)
+    for rel_folder, class_name in REAL_WORLD_FOLDER_MAP.items():
+        folder_path = os.path.join(REAL_WORLD_DIR, rel_folder)
+        if not os.path.isdir(folder_path):
+            print(f"  ⚠️  Real-world folder not found: {folder_path}")
+            continue
+        label_idx = CLASSES.index(class_name)
+        images = sorted([
+            os.path.join(folder_path, f)
+            for f in os.listdir(folder_path)
+            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        ])
+        rng.shuffle(images)
+        split = int(len(images) * (1 - REAL_WORLD_VAL_SPLIT))
+        for p in images[:split]:
+            train_paths.append((p, label_idx))
+        for p in images[split:]:
+            val_paths.append((p, label_idx))
+        print(f"  {class_name:25s}: {len(images)} images → {split} train / {len(images)-split} val")
+    return train_paths, val_paths
+
 print(f"\nLoading train split: {TRAIN_DIR}")
 train_corn, train_invalid = collect_paths(TRAIN_DIR)
 print(f"  corn samples:    {len(train_corn)}")
@@ -170,6 +209,13 @@ if not val_corn:
     )
 if not val_invalid:
     print("  ⚠️  No invalid val images found — Invalid class recall cannot be measured.")
+
+# ── Merge real-world phone photos ─────────────────────────────────────────────
+print(f"\nLoading real-world photos: {REAL_WORLD_DIR}")
+rw_train, rw_val = collect_realworld_paths()
+print(f"  Real-world total → train: {len(rw_train)}  val: {len(rw_val)}")
+train_corn.extend(rw_train)
+val_corn.extend(rw_val)
 
 # Cap val Invalid proportionally
 val_corn_counts = {}

@@ -528,6 +528,32 @@ fun BottomNavBar(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit
 ) {
+    val context = LocalContext.current
+    val userId by UserPreferences.getUserId(context).collectAsState(initial = "")
+    var unreadCount by remember { mutableIntStateOf(0) }
+
+    // Real-time listener for unread notification count
+    DisposableEffect(userId) {
+        if (userId.isEmpty()) return@DisposableEffect onDispose {}
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                var count = 0
+                snapshot.children.forEach { child ->
+                    val notifUserId = child.child("farmer_id").getValue(String::class.java) ?: ""
+                    if (notifUserId == userId) {
+                        val isRead = child.child("is_read").getValue(Boolean::class.java) ?: false
+                        if (!isRead) count++
+                    }
+                }
+                unreadCount = count
+            }
+            override fun onCancelled(error: DatabaseError) {}
+        }
+        val ref = FirebaseHelper.notificationsRef()
+        ref.addValueEventListener(listener)
+        onDispose { ref.removeEventListener(listener) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -562,12 +588,36 @@ fun BottomNavBar(
                             interactionSource = remember { MutableInteractionSource() }
                         ) { onTabSelected(index) }
                 ) {
-                    Icon(
-                        icon,
-                        contentDescription = label,
-                        tint = if (selectedTab == index) GreenPrimary else TextPrimary,
-                        modifier = Modifier.size(34.dp)
-                    )
+                    if (index == 3 && unreadCount > 0) {
+                        BadgedBox(
+                            badge = {
+                                Badge(
+                                    containerColor = Color.Red,
+                                    contentColor = Color.White
+                                ) {
+                                    Text(
+                                        text = if (unreadCount > 99) "99+" else unreadCount.toString(),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = label,
+                                tint = if (selectedTab == index) GreenPrimary else TextPrimary,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                    } else {
+                        Icon(
+                            icon,
+                            contentDescription = label,
+                            tint = if (selectedTab == index) GreenPrimary else TextPrimary,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = label,
