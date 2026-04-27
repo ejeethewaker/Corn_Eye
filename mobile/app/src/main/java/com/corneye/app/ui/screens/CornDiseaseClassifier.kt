@@ -46,20 +46,24 @@ class CornDiseaseClassifier(private val context: Context) {
         private const val TAG = "CornClassifier"
 
         // OOD gate thresholds — must match test_tflite.py
-        // Confidence: 0.60 — real-world field photos naturally score lower than
-        // PlantVillage lab images; 0.72 was too aggressive and rejected valid scans.
-        private const val CONFIDENCE_MIN = 0.60f
-        // Entropy is normalized to [0,1] by dividing by ln(numClasses),
-        //   so 0.80 now correctly means "reject if uncertainty > 80% of max".
-        private const val ENTROPY_MAX    = 0.80f
+        // Confidence: 0.72 — restored to original value. 0.60 was too permissive
+        // and allowed non-corn images (phone screens, blank images) to pass.
+        private const val CONFIDENCE_MIN = 0.72f
+        // Entropy is normalized to [0,1] by dividing by ln(numClasses).
+        // Lowered from 0.80 to 0.70 — at 0.80 the model could be highly uncertain
+        // and still pass. 0.70 means: reject if the model is unsure about more
+        // than 70% of its maximum possible uncertainty.
+        private const val ENTROPY_MAX    = 0.70f
         private const val INVALID_LABEL  = "Invalid"
 
         // Minimum confidence for forced-corn fallback classification.
         // Used when the color pre-filter passed (image has corn-like colors) but the
         // model predicted Invalid due to domain shift (trained on lab photos, tested
-        // on real-world field photos).  A much lower bar is appropriate here because
-        // the color filter already established that the image looks like a plant.
-        private const val FORCE_CORN_CONFIDENCE_MIN = 0.10f
+        // on real-world field photos). Raised to 0.55 — the model must be at least
+        // 55% confident in a corn disease class (ignoring Invalid) for the fallback
+        // to accept. This prevents borderline non-corn images from slipping through
+        // the forced classification path.
+        private const val FORCE_CORN_CONFIDENCE_MIN = 0.55f
     }
 
     data class Result(

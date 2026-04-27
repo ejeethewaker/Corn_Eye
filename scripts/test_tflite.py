@@ -26,8 +26,8 @@ TFLITE_PATH    = os.path.join(MODELS_DIR, "corn_disease_model.tflite")
 LABELS_PATH    = os.path.join(MODELS_DIR, "labels.txt")
 
 IMG_SIZE       = 224
-CONFIDENCE_MIN = 0.70      # must match Android gate
-ENTROPY_MAX    = 0.80      # must match Android gate
+CONFIDENCE_MIN = 0.72      # must match Android gate (restored from 0.60 — too permissive)
+ENTROPY_MAX    = 0.70      # must match Android gate (lowered from 0.80 — was too permissive)
 INVALID_LABEL  = "Invalid"  # OOD class name
 
 # Default: sample from val set

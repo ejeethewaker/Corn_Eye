@@ -69,9 +69,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 # ══════════════════════════════════════════════════════════════════════════════
 # Config
 # ══════════════════════════════════════════════════════════════════════════════
-BASE_DIR       = r"C:\Users\Admin\Downloads\PlantsLeafs\Full"
+BASE_DIR       = r"C:\Users\camsy\Downloads\PlantsLeafs\New Plant Diseases Dataset(Augmented)\New Plant Diseases Dataset(Augmented)"
 TRAIN_DIR      = os.path.join(BASE_DIR, "train")
-VAL_DIR        = os.path.join(BASE_DIR, "val")
+VAL_DIR        = os.path.join(BASE_DIR, "valid")
 
 IMG_SIZE       = 224
 BATCH_SIZE     = 32

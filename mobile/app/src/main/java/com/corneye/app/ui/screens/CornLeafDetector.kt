@@ -30,28 +30,30 @@ class CornLeafDetector(private val context: Context) {
         private const val INPUT_SIZE = 224
 
         // ── Color pre-check constants ──
-        // Restored to original values — prevents non-plant images from passing the color gate.
-        private const val MIN_GREEN_RATIO          = 0.10f
+        // MIN_GREEN_RATIO: at least 13% of sampled pixels must be green-hued.
+        // Raised from 0.10 — prevents phone screens with small green UI elements
+        // (headers, icons) from passing the check.
+        private const val MIN_GREEN_RATIO          = 0.13f
         private const val MIN_GREEN_SATURATION     = 0.20f
         private const val MIN_GREEN_DOMINANCE      = 0.27f
 
-        // Diseased/necrotic leaf tissue (rust, blight) — orange-brown hues
-        // Lowered from 0.25 to 0.15 to accept heavily diseased leaves where
-        // NLB / gray-leaf-spot lesions cover a large fraction of the image.
-        private const val MIN_PLANT_COMBINED_RATIO = 0.15f
+        // Diseased/necrotic leaf tissue (rust, blight) — orange-brown hues.
+        // Raised from 0.15 to 0.20 — combined plant pixels must cover at least
+        // 20% of the image so isolated green UI spots cannot pass.
+        private const val MIN_PLANT_COMBINED_RATIO = 0.20f
 
         // ── Non-corn leaf rejection constants ──
-        // Hue concentration: if ≥88% of sampled green pixels share the same 30° hue
+        // Hue concentration: if ≥80% of sampled green pixels share the same 30° hue
         // band the image is too monochromatic to be a real corn plant photographed in
-        // natural conditions.  Studio/stock-photo non-corn leaves (banana, palm, etc.)
-        // typically score >92%; real field corn leaves score 65–82%.
-        private const val MAX_HUE_CONCENTRATION = 0.88f
+        // natural conditions.  UI/app headers and solid-color objects score >90%;
+        // real field corn leaves score 65–82%.
+        private const val MAX_HUE_CONCENTRATION = 0.80f
 
         // Brightness (V-channel) variance among green pixels, normalized to [0,1].
-        // A perfectly smooth stock-photo leaf has near-zero variance (~0.0005–0.001).
-        // A real field corn leaf (with veins, shadow, lighting gradients) scores
-        // roughly 0.003–0.020+.  Threshold 0.002 only rejects extreme edge cases.
-        private const val MIN_BRIGHTNESS_VARIANCE = 0.002f
+        // Screen UI elements (app headers, solid-color buttons) are very uniform
+        // (~0.0001–0.002). A real field corn leaf (with veins, shadow, lighting
+        // gradients) scores roughly 0.004–0.020+.
+        private const val MIN_BRIGHTNESS_VARIANCE = 0.004f
     }
 
     // No model to load — always ready
@@ -216,8 +218,12 @@ class CornLeafDetector(private val context: Context) {
             android.util.Log.d(TAG, "→ FAIL: green channel not dominant enough overall")
             return false
         }
-        if (activeQuadrants < 2) {
-            android.util.Log.d(TAG, "→ FAIL: plant pixels not spread enough across image ($activeQuadrants/4 quadrants)")
+        // Require plant pixels in at least 3 of 4 quadrants.
+        // A phone screen with a green header only activates the top-left and
+        // top-right quadrants (2/4). A real corn leaf filling the camera frame
+        // will activate 3 or 4 quadrants.
+        if (activeQuadrants < 3) {
+            android.util.Log.d(TAG, "→ FAIL: plant pixels not spread enough across image ($activeQuadrants/4 quadrants — need 3)")
             return false
         }
 
